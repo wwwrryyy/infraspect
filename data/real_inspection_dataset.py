@@ -82,6 +82,68 @@ def extract_real_concrete_patches(
     return healthy_patches, defect_patches
 
 
+def extract_crack_segmentation_patches(
+    crack_seg_dir: str = "data/raw/crack_segmentation",
+    patch_size: int = 128,
+    max_patches: int = 200,
+) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
+    """Extracts real concrete surface and crack patches from the CrackSegmentation dataset."""
+    healthy_patches = []
+    defect_patches = []
+
+    img_dir = os.path.join(crack_seg_dir, "test_imgs")
+    mask_dir = os.path.join(crack_seg_dir, "test_results", "resnet_101")
+    if not os.path.isdir(img_dir) or not os.path.isdir(mask_dir):
+        return healthy_patches, defect_patches
+
+    masks = sorted(glob.glob(os.path.join(mask_dir, "*.*")))
+    mask_map = {os.path.splitext(os.path.basename(p))[0]: p for p in masks}
+
+    imgs = sorted(glob.glob(os.path.join(img_dir, "*.*")))
+    for img_p in imgs:
+        stem = os.path.splitext(os.path.basename(img_p))[0]
+        if stem not in mask_map:
+            continue
+
+        img_bgr = cv2.imread(img_p)
+        mask = cv2.imread(mask_map[stem], cv2.IMREAD_GRAYSCALE)
+        if img_bgr is None or mask is None:
+            continue
+        if img_bgr.shape[:2] != mask.shape[:2]:
+            mask = cv2.resize(mask, (img_bgr.shape[1], img_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        h, w = img_rgb.shape[:2]
+
+        step = max(patch_size, 384)
+        for y in range(0, h - patch_size + 1, step):
+            for x in range(0, w - patch_size + 1, step):
+                crop_img = img_rgb[y : y + patch_size, x : x + patch_size]
+                crop_mask = (mask[y : y + patch_size, x : x + patch_size] > 128).astype(np.uint8)
+                crack_pixels = int(np.sum(crop_mask))
+
+                if crack_pixels == 0:
+                    healthy_patches.append(crop_img)
+                elif crack_pixels >= 25:
+                    defect_patches.append((crop_img, crop_mask))
+
+                if len(healthy_patches) >= max_patches and len(defect_patches) >= max_patches // 2:
+                    return healthy_patches, defect_patches
+
+    return healthy_patches, defect_patches
+
+
+def extract_all_real_inspection_patches(
+    patch_size: int = 128,
+    max_patches: int = 400,
+) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
+    """Combines healthy and defective patches from both CrackForest and CrackSegmentation."""
+    half = max_patches // 2
+    h1, d1 = extract_real_concrete_patches(patch_size=patch_size, max_patches=half)
+    h2, d2 = extract_crack_segmentation_patches(patch_size=patch_size, max_patches=half)
+    return h1 + h2, d1 + d2
+
+
 class RealStage1DenoisingDataset(Dataset):
     """Stage 1 Denoiser dataset utilizing real concrete surfaces under civil corruptions."""
 
@@ -187,12 +249,11 @@ class RealStage3ClassifierDataset(Dataset):
         else:
             # Pick a real healthy concrete patch and inject synthetic civil defects
             h_patch = self.healthy_patches[self.rng.integers(0, len(self.healthy_patches))]
-            half = self.crop_size // 2
             y1 = self.rng.integers(0, max(1, h_patch.shape[0] - self.crop_size))
             x1 = self.rng.integers(0, max(1, h_patch.shape[1] - self.crop_size))
             sub_patch = h_patch[y1 : y1 + self.crop_size, x1 : x1 + self.crop_size].copy()
 
-            defect_type = self.rng.choice(["spalling", "efflorescence", "exposed_bars", "corrosion_stain", "background"])
+            defect_type = self.rng.choice(["spalling", "corrosion_stain", "background"])
             if defect_type != "background":
                 sub_patch, _, labels_vec = inject_synthetic_defect(sub_patch, defect_type=defect_type, rng=self.rng)
                 label = int(np.argmax(labels_vec))

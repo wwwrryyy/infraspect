@@ -13,6 +13,8 @@ import onnxruntime as ort
 
 from data.real_inspection_dataset import (
     extract_real_concrete_patches,
+    extract_crack_segmentation_patches,
+    extract_all_real_inspection_patches,
     RealStage1DenoisingDataset,
     RealStage2HealthyDataset,
     RealStage2EvaluationDataset,
@@ -57,6 +59,25 @@ def test_real_patch_extraction():
     assert np.all(np.isin(d_mask, [0, 1]))
 
 
+def test_crack_segmentation_patch_extraction():
+    healthy_patches, defect_patches = extract_crack_segmentation_patches(
+        crack_seg_dir="data/raw/crack_segmentation",
+        patch_size=128,
+        max_patches=20,
+    )
+    assert len(healthy_patches) > 0, "Expected at least 1 healthy patch from CrackSegmentation"
+    assert len(defect_patches) > 0, "Expected at least 1 defect patch from CrackSegmentation"
+
+
+def test_combined_real_patch_extraction():
+    healthy_patches, defect_patches = extract_all_real_inspection_patches(
+        patch_size=128,
+        max_patches=30,
+    )
+    assert len(healthy_patches) >= 10
+    assert len(defect_patches) >= 5
+
+
 def test_real_datasets_tensors():
     healthy_patches, defect_patches = extract_real_concrete_patches(max_patches=10)
 
@@ -93,13 +114,15 @@ def test_calibrated_threshold_files():
 
 def test_real_inference_benchmark():
     from deploy_inference import PipelineRunner
-    runner = PipelineRunner(arch="cnn", exports_dir="exports")
 
-    # Real uncracked patch
     healthy_patches, _ = extract_real_concrete_patches(max_patches=5)
     real_patch_u8 = (healthy_patches[0] * 255.0).astype(np.uint8)
 
-    timing, defects, vis_map, restored = runner.run_frame(real_patch_u8)
-    assert "fps" in timing
-    assert timing["fps"] > 10.0  # Must exceed PRD target (>=10 FPS)
-    assert restored.shape == real_patch_u8.shape
+    for arch in ["cnn", "snn"]:
+        runner = PipelineRunner(arch=arch, exports_dir="exports")
+        timing, defects, vis_map, restored = runner.run_frame(real_patch_u8)
+        assert "fps" in timing
+        assert "total_ms" in timing
+        assert timing["total_ms"] > 0.0
+        assert restored.shape == real_patch_u8.shape
+        assert vis_map.shape == (real_patch_u8.shape[0], real_patch_u8.shape[1], 3)

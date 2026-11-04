@@ -50,30 +50,19 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from data.real_inspection_dataset import (
     extract_real_concrete_patches,
+    extract_crack_segmentation_patches,
+    extract_all_real_inspection_patches,
     RealStage1DenoisingDataset,
     RealStage2HealthyDataset,
     RealStage2EvaluationDataset,
     RealStage3ClassifierDataset,
 )
+from models.stage1_denoiser.train import ssim_loss
 from models.stage1_denoiser.model import SpikingUNet, CNNUNet
 from models.stage2_detector.autoencoder import SNNAutoencoder, CNNAutoencoder, ONNXExportableSNN
 from models.stage3_classifier.model import SpikingMobileNetV3Classifier, CNNMobileNetV3Classifier
 from data.datasets import DEFECT_CLASSES
 from src_python.tactical_logic import compute_pixelwise_mse_numpy
-
-
-def ssim_loss(img1: torch.Tensor, img2: torch.Tensor, window_size: int = 7) -> torch.Tensor:
-    """Fast SSIM loss for spatial structural coherence."""
-    c1, c2 = 0.01**2, 0.03**2
-    kernel = torch.ones((img1.shape[1], 1, window_size, window_size), device=img1.device) / (window_size**2)
-    mu1 = nn.functional.conv2d(img1, kernel, padding=window_size // 2, groups=img1.shape[1])
-    mu2 = nn.functional.conv2d(img2, kernel, padding=window_size // 2, groups=img2.shape[1])
-    mu1_sq, mu2_sq, mu1_mu2 = mu1.pow(2), mu2.pow(2), mu1 * mu2
-    sigma1_sq = nn.functional.conv2d(img1 * img1, kernel, padding=window_size // 2, groups=img1.shape[1]) - mu1_sq
-    sigma2_sq = nn.functional.conv2d(img2 * img2, kernel, padding=window_size // 2, groups=img2.shape[1]) - mu2_sq
-    sigma12 = nn.functional.conv2d(img1 * img2, kernel, padding=window_size // 2, groups=img1.shape[1]) - mu1_mu2
-    ssim = ((2 * mu1_mu2 + c1) * (2 * sigma12 + c2)) / ((mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2))
-    return 1.0 - torch.clamp(ssim.mean(), 0.0, 1.0)
 
 
 def evaluate_pixel_auroc_real(model, eval_dataset, device, num_eval: int = 40) -> float:
@@ -122,6 +111,12 @@ def train_stage1_real(arch: str, healthy_patches: list, device, epochs: int = 5,
 
     best_loss = float("inf")
     ckpt_path = f"exports/{arch}_denoiser_best.pt"
+    if os.path.isfile(ckpt_path):
+        try:
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            print(f"[+] Fine-tuning from existing checkpoint: {ckpt_path}")
+        except Exception:
+            pass
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -250,6 +245,12 @@ def train_stage3_real(arch: str, defect_patches: list, healthy_patches: list, de
 
     best_loss = float("inf")
     ckpt_path = f"exports/stage3_{arch}_best.pt"
+    if os.path.isfile(ckpt_path):
+        try:
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            print(f"[+] Fine-tuning from existing checkpoint: {ckpt_path}")
+        except Exception:
+            pass
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -301,11 +302,11 @@ def train_stage3_real(arch: str, defect_patches: list, healthy_patches: list, de
     return model, onnx_path
 
 
-def calibrate_threshold_real(arch: str, healthy_patches: list, s1_onnx: str, s2_onnx: str) -> float:
-    """Calibrates 99.5th percentile MSE threshold on real uncracked concrete validation patches."""
+def calibrate_threshold_real(arch: str, val_patches: list, s1_onnx: str, s2_onnx: str) -> float:
+    """Calibrates empirical 99.5th percentile MSE threshold on held-out uncracked validation patches."""
     import onnxruntime as ort
 
-    print(f"\n[*] Calibrating Anomaly Threshold on Real Healthy Concrete ({arch.upper()}) ...")
+    print(f"\n[*] Calibrating Anomaly Threshold on Held-Out Validation Patches ({arch.upper()}) ...")
     s1_session = ort.InferenceSession(s1_onnx, providers=["CPUExecutionProvider"])
     s2_session = ort.InferenceSession(s2_onnx, providers=["CPUExecutionProvider"])
 
@@ -315,9 +316,8 @@ def calibrate_threshold_real(arch: str, healthy_patches: list, s1_onnx: str, s2_
     s2_out = s2_session.get_outputs()[0].name
 
     all_pixel_errors = []
-    # Use 50 held-out healthy validation patches
-    calib_patches = healthy_patches[:50]
-    for patch in calib_patches:
+    frame_mean_errors = []
+    for patch in val_patches:
         x_norm = patch.transpose(2, 0, 1)[np.newaxis].astype(np.float32)
         restored = s1_session.run([s1_out], {s1_in: x_norm})[0]
         recon = s2_session.run([s2_out], {s2_in: restored})[0]
@@ -325,22 +325,20 @@ def calibrate_threshold_real(arch: str, healthy_patches: list, s1_onnx: str, s2_
         rest_hwc = restored.squeeze(0).transpose(1, 2, 0)
         recon_hwc = recon.squeeze(0).transpose(1, 2, 0)
 
-        _, heatmap = compute_pixelwise_mse_numpy(rest_hwc, recon_hwc, gaussian_sigma=0.8)
+        mean_mse, heatmap = compute_pixelwise_mse_numpy(rest_hwc, recon_hwc, gaussian_sigma=0.8)
+        frame_mean_errors.append(mean_mse)
         all_pixel_errors.append(heatmap.flatten())
 
     concat_errors = np.concatenate(all_pixel_errors)
     calibrated_th = float(np.percentile(concat_errors, 99.5))
-    # Safety clamp: avoid degenerate or extreme thresholds
-    calibrated_th = max(0.005, min(0.15, calibrated_th))
 
     calib_data = {
         "arch": arch,
         "calibrated_mse_threshold": round(calibrated_th, 5),
-        "mean_pixel_mse": float(np.mean(concat_errors)),
-        "p95": float(np.percentile(concat_errors, 95.0)),
-        "p99": float(np.percentile(concat_errors, 99.0)),
-        "p99_5": float(np.percentile(concat_errors, 99.5)),
-        "num_calib_patches": len(calib_patches),
+        "p99_threshold": float(np.percentile(concat_errors, 99.0)),
+        "p95_threshold": float(np.percentile(concat_errors, 95.0)),
+        "mean_healthy_mse": float(np.mean(frame_mean_errors)),
+        "num_calibration_frames": len(val_patches),
         "timestamp": time.time(),
     }
 
@@ -348,24 +346,30 @@ def calibrate_threshold_real(arch: str, healthy_patches: list, s1_onnx: str, s2_
     with open(out_file, "w") as f:
         json.dump(calib_data, f, indent=2)
 
-    print(f"[+] Calibrated 99.5th percentile MSE threshold: {calibrated_th:.5f} -> Saved to {out_file}")
+    print(f"[+] Empirical 99.5th percentile MSE threshold: {calibrated_th:.5f} -> Saved to {out_file}")
     return calibrated_th
 
 
 def main():
     parser = argparse.ArgumentParser(description="Infraspect Real Inspection Dataset Training & Calibration")
-    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs per stage")
+    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs per stage")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
-    parser.add_argument("--max-patches", type=int, default=250, help="Maximum number of patches to extract")
+    parser.add_argument("--max-patches", type=int, default=300, help="Maximum number of patches to extract")
     args = parser.parse_args()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"[+] Device: {device}")
 
-    # Step 1: Extract real patches
-    print("[*] Extracting real concrete surface patches from CrackForest ...")
-    healthy_patches, defect_patches = extract_real_concrete_patches(max_patches=args.max_patches)
+    # Step 1: Extract real patches from CrackForest and CrackSegmentation
+    print("[*] Extracting real concrete surface patches from CrackForest & CrackSegmentation ...")
+    healthy_patches, defect_patches = extract_all_real_inspection_patches(max_patches=args.max_patches)
     print(f"[+] Extracted: {len(healthy_patches)} clean healthy patches, {len(defect_patches)} defective crack patches")
+
+    # Split healthy patches into train (80%) and held-out validation (20%) to avoid calibration data leakage
+    n_val = max(25, int(len(healthy_patches) * 0.20))
+    train_healthy = healthy_patches[n_val:]
+    val_healthy = healthy_patches[:n_val]
+    print(f"[+] Dataset Split: {len(train_healthy)} train healthy patches, {len(val_healthy)} held-out validation patches")
 
     summary = {}
 
@@ -375,16 +379,16 @@ def main():
         print("=" * 70)
 
         # Stage 1: Denoiser
-        s1_model, s1_onnx = train_stage1_real(arch, healthy_patches, device, epochs=args.epochs, batch_size=args.batch_size)
+        s1_model, s1_onnx = train_stage1_real(arch, train_healthy, device, epochs=args.epochs, batch_size=args.batch_size)
 
         # Stage 2: Anomaly Detector
-        s2_model, s2_onnx, auroc = train_stage2_real(arch, healthy_patches, defect_patches, device, epochs=args.epochs, batch_size=args.batch_size)
+        s2_model, s2_onnx, auroc = train_stage2_real(arch, train_healthy, defect_patches, device, epochs=args.epochs, batch_size=args.batch_size)
 
         # Stage 3: Defect Classifier
-        s3_model, s3_onnx = train_stage3_real(arch, defect_patches, healthy_patches, device, epochs=args.epochs, batch_size=args.batch_size)
+        s3_model, s3_onnx = train_stage3_real(arch, defect_patches, train_healthy, device, epochs=args.epochs, batch_size=args.batch_size)
 
-        # Calibrate Anomaly Threshold
-        calibrated_th = calibrate_threshold_real(arch, healthy_patches, s1_onnx, s2_onnx)
+        # Calibrate Anomaly Threshold on held-out validation patches
+        calibrated_th = calibrate_threshold_real(arch, val_healthy, s1_onnx, s2_onnx)
 
         summary[arch] = {
             "stage2_auroc": round(auroc, 4),
