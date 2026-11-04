@@ -102,14 +102,14 @@ class PipelineRunner:
             (timing_metrics, detected_defects, visual_heatmap)
         """
         h_orig, w_orig = frame_rgb.shape[:2]
-        # Snap dimensions to divisible by 4
-        h = (h_orig // 4) * 4
-        w = (w_orig // 4) * 4
-        if (h, w) != (h_orig, w_orig):
-            frame_rgb = cv2.resize(frame_rgb, (w, h), interpolation=cv2.INTER_AREA)
+        target_h, target_w = 128, 128
+        if (h_orig, w_orig) != (target_h, target_w):
+            infer_frame = cv2.resize(frame_rgb, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        else:
+            infer_frame = frame_rgb
 
-        # Normalize to float32 [1, 3, H, W]
-        x_norm = (frame_rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)[np.newaxis]
+        # Normalize to float32 [1, 3, 128, 128]
+        x_norm = (infer_frame.astype(np.float32) / 255.0).transpose(2, 0, 1)[np.newaxis]
 
         # Stage 1: Denoiser
         t0 = time.perf_counter()
@@ -123,6 +123,9 @@ class PipelineRunner:
         # Anomaly Calculus (HWC float32)
         restored_hwc = np.ascontiguousarray(restored.squeeze(0).transpose(1, 2, 0))
         recon_hwc = np.ascontiguousarray(recon.squeeze(0).transpose(1, 2, 0))
+        self.last_restored_hwc = (np.clip(restored_hwc, 0.0, 1.0) * 255.0).astype(np.uint8)
+        if (h_orig, w_orig) != (target_h, target_w):
+            self.last_restored_hwc = cv2.resize(self.last_restored_hwc, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
 
         t_calc_start = time.perf_counter()
         if self.cpp_engine is not None:
@@ -156,6 +159,20 @@ class PipelineRunner:
                     d["defect_class"] = DEFECT_CLASSES[top_idx]
                     d["classifier_prob"] = float(probs[i, top_idx])
                 t_s3_elapsed = time.perf_counter() - t_s3_start
+
+        # Rescale defect bboxes and visual heatmap back to original frame dimensions
+        if (h_orig, w_orig) != (target_h, target_w):
+            scale_x = w_orig / float(target_w)
+            scale_y = h_orig / float(target_h)
+            for d in defects:
+                bx, by, bw, bh = d["bbox"]
+                d["bbox"] = [
+                    int(round(bx * scale_x)),
+                    int(round(by * scale_y)),
+                    int(round(bw * scale_x)),
+                    int(round(bh * scale_y)),
+                ]
+            visual_heatmap = cv2.resize(visual_heatmap, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
 
         t_end = time.perf_counter()
 

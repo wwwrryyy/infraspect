@@ -103,7 +103,15 @@ def train_and_export(args):
 
     best_loss = float("inf")
     os.makedirs(args.output_dir, exist_ok=True)
-    ckpt_path = os.path.join(args.output_dir, f"stage2_{args.arch.lower()}_best.pt")
+    ckpt_path = args.checkpoint if args.checkpoint else os.path.join(args.output_dir, f"stage2_{args.arch.lower()}_best.pt")
+    if args.checkpoint and os.path.isfile(args.checkpoint):
+        state = torch.load(args.checkpoint, map_location=device, weights_only=True)
+        model.load_state_dict(state)
+        print(f"[+] Loaded weights from: {args.checkpoint}")
+    elif args.epochs == 0 and os.path.isfile(ckpt_path):
+        state = torch.load(ckpt_path, map_location=device, weights_only=True)
+        model.load_state_dict(state)
+        print(f"[+] Loaded weights from: {ckpt_path}")
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -166,6 +174,7 @@ def train_and_export(args):
 def parse_args():
     p = argparse.ArgumentParser(description="Train and Export Stage 2 Autoencoder")
     p.add_argument("--arch", type=str, default="snn", choices=["snn", "cnn"])
+    p.add_argument("--checkpoint", type=str, default=None)
     p.add_argument("--data-dir", type=str, default=None)
     p.add_argument("--output-dir", type=str, default="exports")
     p.add_argument("--output", type=str, default=None)

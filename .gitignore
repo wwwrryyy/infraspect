@@ -23,5 +23,8 @@ src_cpp/build/
 *.sqlite
 *.sqlite3
 
+# Datasets
+data/raw/
+
 # OS metadata
 .DS_Store
