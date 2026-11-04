@@ -1,0 +1,87 @@
+"""
+test_p4_models.py
+=================
+Unit tests for Phase P4 model architectures:
+- Stage 1 SpikingUNet & CNNUNet (reset_mechanism="none", shapes, [0, 1] bounds).
+- Stage 2 SNNAutoencoder & CNNAutoencoder (negative-only baselines, shapes, bounds).
+- Stage 3 SpikingMobileNetV3Classifier & CNNMobileNetV3Classifier (64x64 crops, 6 logits).
+"""
+
+import torch
+import pytest
+import numpy as np
+
+from models.stage1_denoiser.model import SpikingUNet, CNNUNet
+from models.stage2_detector.autoencoder import SNNAutoencoder, CNNAutoencoder
+from models.stage3_classifier.model import SpikingMobileNetV3Classifier, CNNMobileNetV3Classifier
+from data.datasets import DEFECT_CLASSES
+
+
+def test_stage1_models_shape_and_reset():
+    x = torch.rand(2, 3, 128, 128)
+
+    # SNN
+    s_unet = SpikingUNet(in_channels=3, base_ch=16, num_steps=4)
+    assert s_unet.out_lif.reset_mechanism == "none"
+
+    with torch.no_grad():
+        out_snn = s_unet(x)
+    assert out_snn.shape == (2, 3, 128, 128)
+    assert out_snn.min() >= 0.0 and out_snn.max() <= 1.0
+
+    # CNN
+    c_unet = CNNUNet(in_channels=3, base_ch=16)
+    with torch.no_grad():
+        out_cnn = c_unet(x)
+    assert out_cnn.shape == (2, 3, 128, 128)
+    assert out_cnn.min() >= 0.0 and out_cnn.max() <= 1.0
+
+
+def test_stage2_autoencoders_shape():
+    x = torch.rand(2, 3, 128, 128)
+
+    # SNN Autoencoder
+    s_ae = SNNAutoencoder(in_channels=3, num_steps=4)
+    with torch.no_grad():
+        out_s_ae = s_ae(x)
+    assert out_s_ae.shape == (2, 3, 128, 128)
+    assert out_s_ae.min() >= 0.0 and out_s_ae.max() <= 1.0
+
+    # CNN Autoencoder
+    c_ae = CNNAutoencoder(in_channels=3)
+    with torch.no_grad():
+        out_c_ae = c_ae(x)
+    assert out_c_ae.shape == (2, 3, 128, 128)
+    assert out_c_ae.min() >= 0.0 and out_c_ae.max() <= 1.0
+
+
+def test_stage3_classifiers_shape():
+    crops = torch.rand(4, 3, 64, 64)
+
+    # Spiking MobileNetV3
+    s_mob = SpikingMobileNetV3Classifier(in_channels=3, num_classes=len(DEFECT_CLASSES), num_steps=4)
+    with torch.no_grad():
+        logits_snn = s_mob(crops)
+    assert logits_snn.shape == (4, len(DEFECT_CLASSES))
+
+    # CNN MobileNetV3
+    c_mob = CNNMobileNetV3Classifier(in_channels=3, num_classes=len(DEFECT_CLASSES))
+    with torch.no_grad():
+        logits_cnn = c_mob(crops)
+    assert logits_cnn.shape == (4, len(DEFECT_CLASSES))
+
+
+def test_model_training_step():
+    # Verify backward pass computes valid gradients without NaN
+    model = CNNUNet(in_channels=3, base_ch=8)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    x = torch.rand(2, 3, 64, 64)
+    target = torch.rand(2, 3, 64, 64)
+
+    pred = model(x)
+    loss = torch.nn.functional.mse_loss(pred, target)
+    loss.backward()
+    optimizer.step()
+
+    assert not torch.isnan(loss)
+    assert loss.item() > 0.0

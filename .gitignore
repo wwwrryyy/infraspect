@@ -1,0 +1,27 @@
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# C++ build artifacts & compiled shared libraries
+src_cpp/build/
+*.so
+*.dylib
+*.pyd
+*.a
+*.o
+
+# Local telemetry & database buffers
+*.db
+*.sqlite
+*.sqlite3
+
+# OS metadata
+.DS_Store

@@ -1,0 +1,7 @@
+{
+  "arch": "cnn",
+  "calibrated_mse_threshold": 0.00033,
+  "p99_threshold": 0.00033,
+  "mean_healthy_mse": 0.00031,
+  "num_calibration_frames": 20
+}
