@@ -14,6 +14,7 @@ import onnxruntime as ort
 from data.real_inspection_dataset import (
     extract_real_concrete_patches,
     extract_crack_segmentation_patches,
+    extract_bimewok_patches,
     extract_all_real_inspection_patches,
     RealStage1DenoisingDataset,
     RealStage2HealthyDataset,
@@ -25,6 +26,7 @@ from train_real_inspection import roc_auc_numpy
 
 HAS_CRACKFOREST = os.path.isdir("data/raw/crackforest/image")
 HAS_CRACKSEG = os.path.isdir("data/raw/crack_segmentation/test_imgs")
+HAS_BIMEWOK = os.path.isdir("data/raw/bimewok_cracks/data/concrete_images")
 
 
 def test_roc_auc_numpy_synthetic():
@@ -75,14 +77,30 @@ def test_crack_segmentation_patch_extraction():
     assert len(defect_patches) > 0, "Expected at least 1 defect patch from CrackSegmentation"
 
 
+@pytest.mark.skipif(not HAS_BIMEWOK, reason="Bimewok dataset not available locally")
+def test_bimewok_patch_extraction():
+    healthy_patches, crack_imgs = extract_bimewok_patches(
+        bimewok_dir="data/raw/bimewok_cracks/data/concrete_images",
+        patch_size=128,
+        max_healthy=20,
+        max_cracks=10,
+    )
+    assert len(healthy_patches) > 0, "Expected at least 1 healthy patch from Bimewok"
+    assert len(crack_imgs) > 0, "Expected at least 1 crack image from Bimewok"
+    assert healthy_patches[0].shape == (128, 128, 3)
+    assert crack_imgs[0].ndim == 3
+
+
 @pytest.mark.skipif(not (HAS_CRACKFOREST and HAS_CRACKSEG), reason="Datasets not available locally")
 def test_combined_real_patch_extraction():
-    healthy_patches, defect_patches = extract_all_real_inspection_patches(
+    healthy_patches, defect_patches, crack_imgs = extract_all_real_inspection_patches(
         patch_size=128,
         max_patches=30,
     )
     assert len(healthy_patches) >= 10
     assert len(defect_patches) >= 5
+    if HAS_BIMEWOK:
+        assert len(crack_imgs) > 0
 
 
 def test_real_datasets_tensors():

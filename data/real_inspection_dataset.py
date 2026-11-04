@@ -133,15 +133,74 @@ def extract_crack_segmentation_patches(
     return healthy_patches, defect_patches
 
 
+def _load_and_preprocess_images(paths: list[str], max_count: int, patch_size: int = None) -> list[np.ndarray]:
+    """Helper to safely load BGR images, normalize to float32 [0, 1] RGB, with optional center cropping."""
+    patches = []
+    for p in paths[:max_count]:
+        bgr = cv2.imread(p)
+        if bgr is None:
+            continue
+        if patch_size is not None:
+            h, w = bgr.shape[:2]
+            y1 = max(0, (h - patch_size) // 2)
+            x1 = max(0, (w - patch_size) // 2)
+            crop = bgr[y1 : y1 + patch_size, x1 : x1 + patch_size]
+            if crop.shape[0] != patch_size or crop.shape[1] != patch_size:
+                crop = cv2.resize(crop, (patch_size, patch_size))
+            bgr = crop
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        patches.append(rgb)
+    return patches
+
+
+def extract_bimewok_patches(
+    bimewok_dir: str = "data/raw/bimewok_cracks/data/concrete_images",
+    patch_size: int = 128,
+    max_healthy: int = 1000,
+    max_cracks: int = 500,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Extracts healthy concrete patches (128x128) and crack images (227x227) from the METU/bimewok dataset.
+
+    Returns:
+        (healthy_patches, crack_images)
+        healthy_patches: list of [patch_size, patch_size, 3] float32 in [0, 1]
+        crack_images: list of [H, W, 3] float32 in [0, 1]
+    """
+    if not os.path.isdir(bimewok_dir):
+        return [], []
+
+    no_crack_paths = sorted(glob.glob(os.path.join(bimewok_dir, "train", "no_crack", "*.jpg")))
+    no_crack_paths += sorted(glob.glob(os.path.join(bimewok_dir, "val", "no_crack", "*.jpg")))
+    healthy_patches = _load_and_preprocess_images(no_crack_paths, max_healthy, patch_size=patch_size)
+
+    crack_paths = sorted(glob.glob(os.path.join(bimewok_dir, "train", "crack", "*.jpg")))
+    crack_paths += sorted(glob.glob(os.path.join(bimewok_dir, "val", "crack", "*.jpg")))
+    crack_images = _load_and_preprocess_images(crack_paths, max_cracks, patch_size=None)
+
+    return healthy_patches, crack_images
+
+
 def extract_all_real_inspection_patches(
     patch_size: int = 128,
-    max_patches: int = 400,
-) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]]]:
-    """Combines healthy and defective patches from both CrackForest and CrackSegmentation."""
+    max_patches: int = 1000,
+) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]], list[np.ndarray]]:
+    """Combines healthy and defective patches from CrackForest, CrackSegmentation, and Bimewok datasets.
+
+    Defective evaluation patches with masks are sourced from human-annotated ground truth (CrackForest).
+    Healthy nominal patches are sourced across all datasets (CrackForest, CrackSegmentation, Bimewok).
+
+    Returns:
+        (healthy_patches, defect_patches, crack_images)
+    """
     half = max_patches // 2
     h1, d1 = extract_real_concrete_patches(patch_size=patch_size, max_patches=half)
-    h2, d2 = extract_crack_segmentation_patches(patch_size=patch_size, max_patches=half)
-    return h1 + h2, d1 + d2
+    h2, _ = extract_crack_segmentation_patches(patch_size=patch_size, max_patches=half)
+    h3, crack_imgs = extract_bimewok_patches(patch_size=patch_size, max_healthy=max_patches, max_cracks=half)
+
+    healthy_combined = h1 + h2 + h3
+    defect_combined = d1
+
+    return healthy_combined, defect_combined, crack_imgs
 
 
 class RealStage1DenoisingDataset(Dataset):
@@ -208,6 +267,18 @@ class RealStage2EvaluationDataset(Dataset):
         return patch_t, mask_t
 
 
+def _extract_crop(image: np.ndarray, cy: int, cx: int, crop_size: int) -> np.ndarray:
+    """Extracts a bounded spatial crop of size [crop_size, crop_size] centered at (cy, cx)."""
+    half = crop_size // 2
+    h, w = image.shape[:2]
+    y1 = max(0, min(h - crop_size, cy - half))
+    x1 = max(0, min(w - crop_size, cx - half))
+    crop = image[y1 : y1 + crop_size, x1 : x1 + crop_size]
+    if crop.shape[0] != crop_size or crop.shape[1] != crop_size:
+        crop = cv2.resize(crop, (crop_size, crop_size))
+    return crop
+
+
 class RealStage3ClassifierDataset(Dataset):
     """Stage 3 Defect Classifier dataset using real crack crops + augmented civil defects."""
 
@@ -215,12 +286,14 @@ class RealStage3ClassifierDataset(Dataset):
         self,
         defect_patches: list[tuple[np.ndarray, np.ndarray]],
         healthy_patches: list[np.ndarray],
+        crack_images: list[np.ndarray] = None,
         crop_size: int = 64,
         samples_per_epoch: int = 400,
         rng: np.random.Generator = None,
     ):
         self.defect_patches = defect_patches
         self.healthy_patches = healthy_patches
+        self.crack_images = crack_images or []
         self.crop_size = crop_size
         self.samples_per_epoch = samples_per_epoch
         self.rng = rng if rng is not None else np.random.default_rng(42)
@@ -231,21 +304,26 @@ class RealStage3ClassifierDataset(Dataset):
     def __getitem__(self, idx):
         # 60% real cracks, 40% other CODEBRIM defect classes on real concrete
         choice = self.rng.random()
-        if choice < 0.60 and len(self.defect_patches) > 0:
-            patch, mask = self.defect_patches[self.rng.integers(0, len(self.defect_patches))]
-            # Find center of crack
-            ys, xs = np.where(mask > 0)
-            if len(ys) > 0:
-                c_idx = self.rng.integers(0, len(ys))
-                cy, cx = ys[c_idx], xs[c_idx]
-            else:
-                cy, cx = patch.shape[0] // 2, patch.shape[1] // 2
+        has_masked_cracks = len(self.defect_patches) > 0
+        has_bimewok_cracks = len(self.crack_images) > 0
 
-            half = self.crop_size // 2
-            y1 = max(0, min(patch.shape[0] - self.crop_size, cy - half))
-            x1 = max(0, min(patch.shape[1] - self.crop_size, cx - half))
-            crop = patch[y1 : y1 + self.crop_size, x1 : x1 + self.crop_size]
-            label = 1  # "crack"
+        if choice < 0.60 and (has_masked_cracks or has_bimewok_cracks):
+            if has_bimewok_cracks and (not has_masked_cracks or self.rng.random() < 0.50):
+                img = self.crack_images[self.rng.integers(0, len(self.crack_images))]
+                # Resizing full 227x227 cracked image preserves entire defect without off-center cropping noise
+                crop = cv2.resize(img, (self.crop_size, self.crop_size))
+                label = 1  # "crack"
+            else:
+                patch, mask = self.defect_patches[self.rng.integers(0, len(self.defect_patches))]
+                ys, xs = np.where(mask > 0)
+                if len(ys) > 0:
+                    c_idx = self.rng.integers(0, len(ys))
+                    cy, cx = ys[c_idx], xs[c_idx]
+                else:
+                    cy, cx = patch.shape[0] // 2, patch.shape[1] // 2
+
+                crop = _extract_crop(patch, cy, cx, self.crop_size)
+                label = 1  # "crack"
         else:
             # Pick a real healthy concrete patch and inject synthetic civil defects
             h_patch = self.healthy_patches[self.rng.integers(0, len(self.healthy_patches))]

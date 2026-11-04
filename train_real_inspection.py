@@ -114,9 +114,9 @@ def train_stage1_real(arch: str, healthy_patches: list, device, epochs: int = 5,
     if os.path.isfile(ckpt_path):
         try:
             model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
-            print(f"[+] Fine-tuning from existing checkpoint: {ckpt_path}")
-        except Exception:
-            pass
+            print(f"[+] Loaded existing checkpoint: {ckpt_path}")
+        except (RuntimeError, KeyError, FileNotFoundError) as err:
+            print(f"[-] Could not load checkpoint {ckpt_path} ({err}), initializing fresh weights.")
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -162,7 +162,15 @@ def train_stage1_real(arch: str, healthy_patches: list, device, epochs: int = 5,
     return model, onnx_path
 
 
-def train_stage2_real(arch: str, healthy_patches: list, defect_patches: list, device, epochs: int = 5, batch_size: int = 16):
+def train_stage2_real(
+    arch: str,
+    train_healthy: list,
+    val_healthy: list,
+    defect_patches: list,
+    device,
+    epochs: int = 5,
+    batch_size: int = 16,
+):
     print(f"\n[*] Training Stage 2 Negative-Only Autoencoder ({arch.upper()}) on Real Healthy Concrete ...")
     if arch == "snn":
         model = SNNAutoencoder(in_channels=3, beta=0.85, num_steps=4).to(device)
@@ -171,37 +179,58 @@ def train_stage2_real(arch: str, healthy_patches: list, defect_patches: list, de
         model = CNNAutoencoder(in_channels=3).to(device)
         onnx_path = "exports/cnn_autoencoder.onnx"
 
-    dataset = RealStage2HealthyDataset(healthy_patches)
+    train_dataset = RealStage2HealthyDataset(train_healthy)
+    val_dataset = RealStage2HealthyDataset(val_healthy)
     eval_dataset = RealStage2EvaluationDataset(defect_patches)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     mse_fn = nn.MSELoss()
 
-    best_loss = float("inf")
+    best_val_loss = float("inf")
     ckpt_path = f"exports/stage2_{arch}_best.pt"
+    if os.path.isfile(ckpt_path):
+        try:
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            print(f"[+] Loaded existing checkpoint: {ckpt_path}")
+        except (RuntimeError, KeyError, FileNotFoundError) as err:
+            print(f"[-] Could not load checkpoint {ckpt_path} ({err}), initializing fresh weights.")
 
     for epoch in range(1, epochs + 1):
         model.train()
         running_loss = 0.0
-        for noisy, clean in loader:
+        for noisy, clean in train_loader:
             noisy, clean = noisy.to(device), clean.to(device)
             optimizer.zero_grad()
             recon = model(noisy)
-            loss = mse_fn(recon, clean) + 0.3 * ssim_loss(recon, clean)
+            loss = mse_fn(recon, clean)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
 
-        avg_loss = running_loss / max(1, len(loader))
+        avg_train_loss = running_loss / max(1, len(train_loader))
+
+        # Unsupervised validation on held-out healthy concrete (zero defect leakage)
+        model.eval()
+        val_running_loss = 0.0
+        with torch.no_grad():
+            for noisy_v, clean_v in val_loader:
+                noisy_v, clean_v = noisy_v.to(device), clean_v.to(device)
+                recon_v = model(noisy_v)
+                val_running_loss += mse_fn(recon_v, clean_v).item()
+        avg_val_loss = val_running_loss / max(1, len(val_loader))
+
         if epoch == 1 or epoch % max(1, epochs // 2) == 0 or epoch == epochs:
-            print(f"    Epoch [{epoch}/{epochs}] Negative Baseline Loss: {avg_loss:.6f}")
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+            print(f"    Epoch [{epoch}/{epochs}] Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             torch.save(model.state_dict(), ckpt_path)
 
-    # Benchmark Pixel AUROC on Real Cracks
-    auroc = evaluate_pixel_auroc_real(model, eval_dataset, device, num_eval=40)
-    print(f"[+] Stage 2 ({arch.upper()}) Real Crack Pixel AUROC: {auroc:.4f}")
+    # Load best checkpoint for final evaluation and export
+    model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+    final_auroc = evaluate_pixel_auroc_real(model, eval_dataset, device, num_eval=len(defect_patches))
+    print(f"[+] Stage 2 ({arch.upper()}) Ground-Truth Crack Pixel AUROC: {final_auroc:.4f}")
 
     # Clean export on CPU
     export_model = SNNAutoencoder(in_channels=3, beta=0.85, num_steps=4).to("cpu") if arch == "snn" else CNNAutoencoder(in_channels=3).to("cpu")
@@ -225,10 +254,18 @@ def train_stage2_real(arch: str, healthy_patches: list, defect_patches: list, de
         dynamo=False,
     )
     print(f"[+] Stage 2 ({arch.upper()}) export complete: {onnx_path}")
-    return model, onnx_path, auroc
+    return model, onnx_path, final_auroc
 
 
-def train_stage3_real(arch: str, defect_patches: list, healthy_patches: list, device, epochs: int = 5, batch_size: int = 16):
+def train_stage3_real(
+    arch: str,
+    defect_patches: list,
+    healthy_patches: list,
+    device,
+    crack_images: list = None,
+    epochs: int = 5,
+    batch_size: int = 16,
+):
     print(f"\n[*] Training Stage 3 MobileNetV3 Classifier ({arch.upper()}) on Defect Crops ...")
     num_classes = len(DEFECT_CLASSES)
     if arch == "snn":
@@ -238,7 +275,13 @@ def train_stage3_real(arch: str, defect_patches: list, healthy_patches: list, de
         model = CNNMobileNetV3Classifier(in_channels=3, num_classes=num_classes).to(device)
         onnx_path = "exports/cnn_mobilenet_classifier.onnx"
 
-    dataset = RealStage3ClassifierDataset(defect_patches, healthy_patches, crop_size=64, samples_per_epoch=200)
+    dataset = RealStage3ClassifierDataset(
+        defect_patches,
+        healthy_patches,
+        crack_images=crack_images,
+        crop_size=64,
+        samples_per_epoch=500,
+    )
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     ce_fn = nn.CrossEntropyLoss()
@@ -248,9 +291,9 @@ def train_stage3_real(arch: str, defect_patches: list, healthy_patches: list, de
     if os.path.isfile(ckpt_path):
         try:
             model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
-            print(f"[+] Fine-tuning from existing checkpoint: {ckpt_path}")
-        except Exception:
-            pass
+            print(f"[+] Loaded existing checkpoint: {ckpt_path}")
+        except (RuntimeError, KeyError, FileNotFoundError) as err:
+            print(f"[-] Could not load checkpoint {ckpt_path} ({err}), initializing fresh weights.")
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -352,21 +395,27 @@ def calibrate_threshold_real(arch: str, val_patches: list, s1_onnx: str, s2_onnx
 
 def main():
     parser = argparse.ArgumentParser(description="Infraspect Real Inspection Dataset Training & Calibration")
-    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs per stage")
+    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs per stage")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
-    parser.add_argument("--max-patches", type=int, default=300, help="Maximum number of patches to extract")
+    parser.add_argument("--max-patches", type=int, default=600, help="Maximum number of patches to extract")
     args = parser.parse_args()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"[+] Device: {device}")
 
-    # Step 1: Extract real patches from CrackForest and CrackSegmentation
-    print("[*] Extracting real concrete surface patches from CrackForest & CrackSegmentation ...")
-    healthy_patches, defect_patches = extract_all_real_inspection_patches(max_patches=args.max_patches)
-    print(f"[+] Extracted: {len(healthy_patches)} clean healthy patches, {len(defect_patches)} defective crack patches")
+    # Step 1: Extract real patches from CrackForest, CrackSegmentation, and Bimewok
+    print("[*] Extracting real concrete surface patches from CrackForest, CrackSegmentation & Bimewok ...")
+    healthy_patches, defect_patches, crack_images = extract_all_real_inspection_patches(
+        max_patches=args.max_patches,
+    )
+    print(
+        f"[+] Extracted: {len(healthy_patches)} clean healthy patches, "
+        f"{len(defect_patches)} defective crack patches, "
+        f"{len(crack_images)} real crack images"
+    )
 
     # Split healthy patches into train (80%) and held-out validation (20%) to avoid calibration data leakage
-    n_val = max(25, int(len(healthy_patches) * 0.20))
+    n_val = max(50, int(len(healthy_patches) * 0.20))
     train_healthy = healthy_patches[n_val:]
     val_healthy = healthy_patches[:n_val]
     print(f"[+] Dataset Split: {len(train_healthy)} train healthy patches, {len(val_healthy)} held-out validation patches")
@@ -381,11 +430,27 @@ def main():
         # Stage 1: Denoiser
         s1_model, s1_onnx = train_stage1_real(arch, train_healthy, device, epochs=args.epochs, batch_size=args.batch_size)
 
-        # Stage 2: Anomaly Detector
-        s2_model, s2_onnx, auroc = train_stage2_real(arch, train_healthy, defect_patches, device, epochs=args.epochs, batch_size=args.batch_size)
+        # Stage 2: Anomaly Detector (Unsupervised training on train_healthy, validated on val_healthy)
+        s2_model, s2_onnx, auroc = train_stage2_real(
+            arch,
+            train_healthy,
+            val_healthy,
+            defect_patches,
+            device,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+        )
 
         # Stage 3: Defect Classifier
-        s3_model, s3_onnx = train_stage3_real(arch, defect_patches, train_healthy, device, epochs=args.epochs, batch_size=args.batch_size)
+        s3_model, s3_onnx = train_stage3_real(
+            arch,
+            defect_patches,
+            train_healthy,
+            device,
+            crack_images=crack_images,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+        )
 
         # Calibrate Anomaly Threshold on held-out validation patches
         calibrated_th = calibrate_threshold_real(arch, val_healthy, s1_onnx, s2_onnx)
