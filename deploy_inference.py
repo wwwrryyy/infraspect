@@ -309,5 +309,10 @@ def parse_args():
     return p.parse_args()
 
 
+def main():
+    args = parse_args()
+    run_benchmark(args)
+
+
 if __name__ == "__main__":
-    run_benchmark(parse_args())
+    main()

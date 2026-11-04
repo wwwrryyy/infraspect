@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infraspect"
+version = "1.0.0"
+description = "Autonomous Civil Infrastructure & Structural Health Monitoring: Real-Time Edge Inspection via Spiking Neural Networks and Continuous CNNs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Infraspect Engineering Team" }
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Manufacturing",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+]
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+py-modules = ["deploy_inference", "gui_dashboard", "train_real_inspection"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["models*", "src_python*", "data*"]
+
+[project.urls]
+Homepage = "https://github.com/wwwrryyy/infraspect"
+Repository = "https://github.com/wwwrryyy/infraspect.git"
+Issues = "https://github.com/wwwrryyy/infraspect/issues"
+
+[project.scripts]
+infraspect-hud = "gui_dashboard:main"
+infraspect-benchmark = "deploy_inference:main"
+infraspect-train = "train_real_inspection:main"

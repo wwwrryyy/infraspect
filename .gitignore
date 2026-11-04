@@ -26,5 +26,9 @@ src_cpp/build/
 # Datasets
 data/raw/
 
+# Release archives
+*.tar.gz
+*.zip
+
 # OS metadata
 .DS_Store
