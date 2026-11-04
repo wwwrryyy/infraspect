@@ -23,6 +23,10 @@ from data.real_inspection_dataset import (
 from train_real_inspection import roc_auc_numpy
 
 
+HAS_CRACKFOREST = os.path.isdir("data/raw/crackforest/image")
+HAS_CRACKSEG = os.path.isdir("data/raw/crack_segmentation/test_imgs")
+
+
 def test_roc_auc_numpy_synthetic():
     # Perfect separation
     y_true = np.array([0, 0, 0, 1, 1, 1])
@@ -36,6 +40,7 @@ def test_roc_auc_numpy_synthetic():
     assert auc_inv == 0.0
 
 
+@pytest.mark.skipif(not HAS_CRACKFOREST, reason="CrackForest dataset not available locally")
 def test_real_patch_extraction():
     healthy_patches, defect_patches = extract_real_concrete_patches(
         crackforest_dir="data/raw/crackforest",
@@ -59,6 +64,7 @@ def test_real_patch_extraction():
     assert np.all(np.isin(d_mask, [0, 1]))
 
 
+@pytest.mark.skipif(not HAS_CRACKSEG, reason="CrackSegmentation dataset not available locally")
 def test_crack_segmentation_patch_extraction():
     healthy_patches, defect_patches = extract_crack_segmentation_patches(
         crack_seg_dir="data/raw/crack_segmentation",
@@ -69,6 +75,7 @@ def test_crack_segmentation_patch_extraction():
     assert len(defect_patches) > 0, "Expected at least 1 defect patch from CrackSegmentation"
 
 
+@pytest.mark.skipif(not (HAS_CRACKFOREST and HAS_CRACKSEG), reason="Datasets not available locally")
 def test_combined_real_patch_extraction():
     healthy_patches, defect_patches = extract_all_real_inspection_patches(
         patch_size=128,
@@ -79,7 +86,12 @@ def test_combined_real_patch_extraction():
 
 
 def test_real_datasets_tensors():
-    healthy_patches, defect_patches = extract_real_concrete_patches(max_patches=10)
+    if HAS_CRACKFOREST:
+        healthy_patches, defect_patches = extract_real_concrete_patches(max_patches=10)
+    else:
+        from data.datasets import generate_concrete_patch
+        healthy_patches = [generate_concrete_patch(128, 128) for _ in range(5)]
+        defect_patches = [(generate_concrete_patch(128, 128), np.ones((128, 128), dtype=np.uint8)) for _ in range(5)]
 
     ds1 = RealStage1DenoisingDataset(healthy_patches)
     corr, clean = ds1[0]
@@ -115,8 +127,12 @@ def test_calibrated_threshold_files():
 def test_real_inference_benchmark():
     from deploy_inference import PipelineRunner
 
-    healthy_patches, _ = extract_real_concrete_patches(max_patches=5)
-    real_patch_u8 = (healthy_patches[0] * 255.0).astype(np.uint8)
+    if HAS_CRACKFOREST:
+        healthy_patches, _ = extract_real_concrete_patches(max_patches=5)
+        real_patch_u8 = (healthy_patches[0] * 255.0).astype(np.uint8)
+    else:
+        from data.datasets import generate_concrete_patch
+        real_patch_u8 = (generate_concrete_patch(128, 128) * 255.0).astype(np.uint8)
 
     for arch in ["cnn", "snn"]:
         runner = PipelineRunner(arch=arch, exports_dir="exports")

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-and-benchmark:
+    name: Build C++ Core, Test & Benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libopencv-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Compile C++ PyBind11 Module
+        run: |
+          cmake -B src_cpp/build -S src_cpp
+          cmake --build src_cpp/build --config Release
+
+      - name: Run Test Suite (33 Unit Tests)
+        run: |
+          PYTHONPATH=. pytest -v tests/
+
+      - name: Run End-to-End Inference Benchmark
+        run: |
+          PYTHONPATH=. python deploy_inference.py --arch compare --num-frames 5
+
+      - name: Run Headless GUI Dashboard Verification
+        run: |
+          PYTHONPATH=. python gui_dashboard.py --gui cv --headless --frames 5
+          PYTHONPATH=. python gui_dashboard.py --gui dpg --headless --frames 5
