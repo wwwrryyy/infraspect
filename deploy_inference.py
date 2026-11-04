@@ -95,11 +95,19 @@ class PipelineRunner:
         else:
             self.cpp_engine = None
 
-    def run_frame(self, frame_rgb: np.ndarray) -> tuple[dict, list[dict], np.ndarray]:
+    def get_mse_threshold(self) -> float:
+        """Returns the current anomaly detection MSE threshold."""
+        return float(self.decision_logic.mse_threshold)
+
+    def set_mse_threshold(self, threshold: float) -> None:
+        """Sets the anomaly detection MSE threshold."""
+        self.decision_logic.set_mse_threshold(threshold)
+
+    def run_frame(self, frame_rgb: np.ndarray) -> tuple[dict, list[dict], np.ndarray, np.ndarray]:
         """Runs the complete inspection pipeline on a single RGB frame (H, W, 3).
 
         Returns:
-            (timing_metrics, detected_defects, visual_heatmap)
+            (timing_metrics, detected_defects, visual_heatmap, restored_frame)
         """
         h_orig, w_orig = frame_rgb.shape[:2]
         target_h, target_w = 128, 128
@@ -123,9 +131,9 @@ class PipelineRunner:
         # Anomaly Calculus (HWC float32)
         restored_hwc = np.ascontiguousarray(restored.squeeze(0).transpose(1, 2, 0))
         recon_hwc = np.ascontiguousarray(recon.squeeze(0).transpose(1, 2, 0))
-        self.last_restored_hwc = (np.clip(restored_hwc, 0.0, 1.0) * 255.0).astype(np.uint8)
+        restored_rgb = (np.clip(restored_hwc, 0.0, 1.0) * 255.0).astype(np.uint8)
         if (h_orig, w_orig) != (target_h, target_w):
-            self.last_restored_hwc = cv2.resize(self.last_restored_hwc, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
+            restored_rgb = cv2.resize(restored_rgb, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
 
         t_calc_start = time.perf_counter()
         if self.cpp_engine is not None:
@@ -185,7 +193,7 @@ class PipelineRunner:
             "total_ms": (t_end - t0) * 1000.0,
             "fps": 1.0 / max(1e-6, t_end - t0),
         }
-        return timing, defects, visual_heatmap
+        return timing, defects, visual_heatmap, restored_rgb
 
 
 def run_benchmark(args):
@@ -226,7 +234,7 @@ def run_benchmark(args):
         total_defects = 0
 
         for idx, frame in enumerate(test_frames):
-            timing, defects, vis_map = runner.run_frame(frame)
+            timing, defects, vis_map, _ = runner.run_frame(frame)
             s1_times.append(timing["s1_ms"])
             s2_times.append(timing["s2_ms"])
             calc_times.append(timing["calc_ms"])

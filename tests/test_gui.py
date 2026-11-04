@@ -17,14 +17,15 @@ def test_hud_rendering_headless():
     frame = hud.get_frame()
     assert frame.shape == (256, 256, 3)
 
-    timing, defects, vis_map = hud.runner.run_frame(frame)
+    timing, defects, vis_map, restored = hud.runner.run_frame(frame)
     assert "fps" in timing
     assert "total_ms" in timing
+    assert restored.shape == frame.shape
 
     # Render 1280x720 canvas
     canvas = hud.render_hud_dashboard(
         frame_rgb=frame,
-        restored_rgb=frame,
+        restored_rgb=restored,
         heatmap_jet=vis_map,
         defects=defects,
         timing=timing,
@@ -49,3 +50,19 @@ def test_hud_run_headless_loop():
     hud = LiveInspectionHUD(arch="cnn", source="synthetic")
     hud.run(max_frames=3, headless=True)
     assert hud.frame_idx == 3
+
+
+def test_dearpygui_headless_dashboard():
+    import argparse
+    args = argparse.Namespace(
+        gui="dpg",
+        arch="cnn",
+        source="synthetic",
+        exports_dir="exports",
+        gsd_mm_per_px=0.08,
+        db_path="civil_inspection_telemetry.db",
+        headless=True,
+        frames=3,
+    )
+    from gui_dashboard import run_dearpygui_dashboard
+    run_dearpygui_dashboard(args)

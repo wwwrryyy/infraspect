@@ -174,14 +174,19 @@ class LiveInspectionHUD:
         cv2.putText(p4, f"  Stage 3 Classifier: {timing['s3_ms']:6.2f} ms", (15, 172), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (160, 160, 170), 1)
 
         # FPS meter
-        cv2.putText(p4, f"Sustained FPS:   {avg_fps:6.1f} FPS", (15, 205), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 255, 200), 2)
+        cv2.putText(p4, f"Sustained FPS:   {avg_fps:6.1f} FPS", (15, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 200), 2)
         prd_status = "PRD: MET (>=10 FPS)" if avg_fps >= 10.0 else "PRD: SUB-10 FPS"
-        cv2.putText(p4, prd_status, (15, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 220, 0), 1)
+        cv2.putText(p4, prd_status, (15, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 220, 0), 1)
 
-        # SHARP Health
-        health_str = "SHARP State: NOMINAL (100% Edge Efficiency)"
-        cv2.putText(p4, health_str, (15, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 200, 80), 1)
-        cv2.putText(p4, f"Buffered Alerts: {self.resilience_mgr.get_pending_sync_count()} (SQLite)", (15, 285), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 180, 180), 1)
+        # SNN vs CNN Comparative Baseline Profiles
+        cv2.putText(p4, "COMPARATIVE PROFILES (SNN vs CNN):", (15, 242), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (210, 210, 220), 1)
+        snn_marker = ">> " if self.arch == "snn" else "   "
+        cnn_marker = ">> " if self.arch == "cnn" else "   "
+        cv2.putText(p4, f"{snn_marker}SNN (T=4): ~14.0 ms | 71.3 FPS | 0.85 beta", (15, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (100, 180, 255) if self.arch == "snn" else (130, 130, 140), 1)
+        cv2.putText(p4, f"{cnn_marker}CNN (T=1):  ~3.9 ms | 254.9 FPS | Single-Pass", (15, 276), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (120, 230, 100) if self.arch == "cnn" else (130, 130, 140), 1)
+
+        # Telemetry & Sync State
+        cv2.putText(p4, f"SHARP Buffer: {self.resilience_mgr.get_pending_sync_count()} alerts (SQLite)", (15, 298), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
 
         # Title headers for panels
         def add_panel_header(panel, title):
@@ -225,10 +230,7 @@ class LiveInspectionHUD:
                 frame_rgb = self.get_frame()
                 self.frame_idx += 1
 
-                timing, defects, vis_map = self.runner.run_frame(frame_rgb)
-
-                # Denoised image reconstruction for view 2
-                restored_hwc = self.runner.last_restored_hwc
+                timing, defects, vis_map, restored_hwc = self.runner.run_frame(frame_rgb)
 
                 # Log defects
                 for d in defects:
@@ -256,13 +258,15 @@ class LiveInspectionHUD:
                 elif key in [ord("c"), ord("C"), 9]:  # Tab or C
                     self.toggle_arch()
                 elif key in [ord("+"), ord("=")]:
-                    new_th = round(self.runner.decision_logic.mse_threshold + 0.005, 4)
-                    self.runner.decision_logic.set_mse_threshold(new_th)
-                    print(f"[+] Sensitivity adjusted: MSE Threshold = {new_th}")
+                    # Increasing sensitivity requires lower anomaly threshold
+                    new_th = max(0.001, round(self.runner.get_mse_threshold() - 0.005, 4))
+                    self.runner.set_mse_threshold(new_th)
+                    print(f"[+] Sensitivity INCREASED: MSE Threshold = {new_th}")
                 elif key in [ord("-"), ord("_")]:
-                    new_th = max(0.001, round(self.runner.decision_logic.mse_threshold - 0.005, 4))
-                    self.runner.decision_logic.set_mse_threshold(new_th)
-                    print(f"[-] Sensitivity adjusted: MSE Threshold = {new_th}")
+                    # Decreasing sensitivity requires higher anomaly threshold
+                    new_th = round(self.runner.get_mse_threshold() + 0.005, 4)
+                    self.runner.set_mse_threshold(new_th)
+                    print(f"[-] Sensitivity DECREASED: MSE Threshold = {new_th}")
                 elif key in [ord("g"), ord("G")]:
                     self.gsd_mm_per_px = None if self.gsd_mm_per_px is not None else 0.08
                     self.runner.gsd_mm_per_px = self.gsd_mm_per_px
@@ -288,36 +292,64 @@ class LiveInspectionHUD:
 
 def run_dearpygui_dashboard(args):
     """DearPyGui GPU-accelerated desktop dashboard."""
+    hud = LiveInspectionHUD(
+        arch=args.arch,
+        source=args.source,
+        exports_dir=args.exports_dir,
+        gsd_mm_per_px=args.gsd_mm_per_px,
+        db_path=args.db_path,
+    )
+
+    if args.headless:
+        print("[*] Running DearPyGui dashboard in headless mode...")
+        hud.run(max_frames=args.frames or 5, headless=True)
+        return
+
     import dearpygui.dearpygui as dpg
 
     dpg.create_context()
     dpg.create_viewport(title="Infraspect Civil Inspection Dashboard (DearPyGui)", width=1280, height=760)
 
-    runner = PipelineRunner(arch=args.arch, exports_dir=args.exports_dir, gsd_mm_per_px=args.gsd_mm_per_px)
-    resilience_mgr = SHARPOfflineResilienceManager(db_path=args.db_path)
-    resilience_mgr.auto_sync_running = False
-
-    rng = np.random.default_rng(42)
     tex_w, tex_h = 256, 256
-
-    # Create dynamic raw textures in DPG
     dummy_data = np.zeros((tex_h, tex_w, 4), dtype=np.float32).flatten()
     with dpg.texture_registry(show=False):
         dpg.add_raw_texture(tex_w, tex_h, dummy_data, format=dpg.mvFormat_Float_rgba, tag="tex_raw")
         dpg.add_raw_texture(tex_w, tex_h, dummy_data, format=dpg.mvFormat_Float_rgba, tag="tex_restored")
         dpg.add_raw_texture(tex_w, tex_h, dummy_data, format=dpg.mvFormat_Float_rgba, tag="tex_heatmap")
 
+    def on_slider_change(sender, app_data):
+        hud.runner.set_mse_threshold(float(app_data))
+
+    def on_toggle_arch():
+        hud.toggle_arch()
+        dpg.set_value("lbl_arch", f"Backbone: {hud.arch.upper()}")
+
+    def on_snapshot():
+        snap_name = f"snapshot_frame_{hud.frame_idx}_{hud.arch}.png"
+        print(f"[+] Snapshot requested: {snap_name}")
+
     with dpg.window(label="Control Panel & Telemetry", width=360, height=720, pos=(900, 10), no_close=True):
         dpg.add_text("INFRASPECT CONTROL HUD", color=(100, 200, 255))
         dpg.add_separator()
 
-        dpg.add_text(f"Backbone: {args.arch.upper()}", tag="lbl_arch", color=(120, 240, 120))
+        dpg.add_text(f"Backbone: {hud.arch.upper()}", tag="lbl_arch", color=(120, 240, 120))
+        dpg.add_button(label="Switch Backbone (SNN <-> CNN)", callback=on_toggle_arch)
+        dpg.add_button(label="Capture Snapshot", callback=on_snapshot)
+        dpg.add_separator()
+
         dpg.add_text("FPS: 0.0", tag="lbl_fps", color=(0, 255, 200))
         dpg.add_text("Latency: 0.0 ms", tag="lbl_latency")
         dpg.add_separator()
 
-        dpg.add_text("Threshold Sensitivity:")
-        dpg.add_slider_float(label="MSE Threshold", default_value=0.06, min_value=0.001, max_value=0.20, tag="slider_th")
+        dpg.add_text("Sensitivity (MSE Threshold):")
+        dpg.add_slider_float(
+            label="Threshold",
+            default_value=hud.runner.get_mse_threshold(),
+            min_value=0.001,
+            max_value=0.20,
+            tag="slider_th",
+            callback=on_slider_change,
+        )
         dpg.add_separator()
 
         dpg.add_text("Recent Detections:")
@@ -329,7 +361,7 @@ def run_dearpygui_dashboard(args):
     with dpg.window(label="Multi-View Inspection Viewport", width=880, height=720, pos=(10, 10), no_close=True):
         with dpg.group(horizontal=True):
             with dpg.group():
-                dpg.add_text("1. Raw Inspection Feed")
+                dpg.add_text("1. Raw Inspection Feed (With Overlays)")
                 dpg.add_image("tex_raw", width=420, height=310)
             with dpg.group():
                 dpg.add_text("2. Stage 1 Restored Frame")
@@ -344,24 +376,31 @@ def run_dearpygui_dashboard(args):
     dpg.setup_dearpygui()
     dpg.show_viewport()
 
-    frame_idx = 0
+    def to_rgba(img_bgr):
+        h, w = img_bgr.shape[:2]
+        if (w, h) != (tex_w, tex_h):
+            img_bgr = cv2.resize(img_bgr, (tex_w, tex_h))
+        rgba = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGBA).astype(np.float32) / 255.0
+        return rgba.flatten()
+
     print("[+] DearPyGui Viewport active.")
 
     while dpg.is_dearpygui_running():
-        frame_idx += 1
-        patch = generate_concrete_patch(height=tex_h, width=tex_w, in_channels=3, rng=rng)
-        if frame_idx % 2 == 0:
-            patch, _, _ = inject_synthetic_defect(patch, defect_type="crack", rng=rng)
-        frame_u8 = (corrupt_civil_image(patch, rng=rng) * 255.0).astype(np.uint8)
+        frame_rgb = hud.get_frame()
+        hud.frame_idx += 1
 
-        timing, defects, vis_map = runner.run_frame(frame_u8)
+        timing, defects, vis_map, restored_hwc = hud.runner.run_frame(frame_rgb)
 
-        # Update textures (RGBA float32)
-        def to_rgba(img_bgr):
-            rgba = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGBA).astype(np.float32) / 255.0
-            return rgba.flatten()
+        # Log defects to SQLite
+        for d in defects:
+            d["timestamp"] = time.time()
+            d["pose"] = {"frame": hud.frame_idx}
+            hud.resilience_mgr.log_inspection_offline(d)
 
-        dpg.set_value("tex_raw", to_rgba(cv2.cvtColor(frame_u8, cv2.COLOR_RGB2BGR)))
+        overlay_bgr = hud.draw_defect_overlays(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR), defects)
+
+        dpg.set_value("tex_raw", to_rgba(overlay_bgr))
+        dpg.set_value("tex_restored", to_rgba(cv2.cvtColor(restored_hwc, cv2.COLOR_RGB2BGR)))
         dpg.set_value("tex_heatmap", to_rgba(vis_map))
 
         dpg.set_value("lbl_fps", f"FPS: {timing['fps']:.1f}")
