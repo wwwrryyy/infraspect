@@ -180,9 +180,13 @@ def extract_bimewok_patches(
     return healthy_patches, crack_images
 
 
+DEFAULT_MAX_CRACK_IMAGES = 2000
+
+
 def extract_all_real_inspection_patches(
     patch_size: int = 128,
     max_patches: int = 1000,
+    max_crack_images: int = DEFAULT_MAX_CRACK_IMAGES,
 ) -> tuple[list[np.ndarray], list[tuple[np.ndarray, np.ndarray]], list[np.ndarray]]:
     """Combines healthy and defective patches from CrackForest, CrackSegmentation, and Bimewok datasets.
 
@@ -195,7 +199,7 @@ def extract_all_real_inspection_patches(
     half = max_patches // 2
     h1, d1 = extract_real_concrete_patches(patch_size=patch_size, max_patches=half)
     h2, _ = extract_crack_segmentation_patches(patch_size=patch_size, max_patches=half)
-    h3, crack_imgs = extract_bimewok_patches(patch_size=patch_size, max_healthy=max_patches, max_cracks=half)
+    h3, crack_imgs = extract_bimewok_patches(patch_size=patch_size, max_healthy=max_patches, max_cracks=min(half, max_crack_images))
 
     healthy_combined = h1 + h2 + h3
     defect_combined = d1

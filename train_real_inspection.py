@@ -265,6 +265,7 @@ def train_stage3_real(
     crack_images: list = None,
     epochs: int = 5,
     batch_size: int = 16,
+    samples_per_epoch: int = 1000,
 ):
     print(f"\n[*] Training Stage 3 MobileNetV3 Classifier ({arch.upper()}) on Defect Crops ...")
     num_classes = len(DEFECT_CLASSES)
@@ -280,7 +281,7 @@ def train_stage3_real(
         healthy_patches,
         crack_images=crack_images,
         crop_size=64,
-        samples_per_epoch=500,
+        samples_per_epoch=samples_per_epoch,
     )
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)

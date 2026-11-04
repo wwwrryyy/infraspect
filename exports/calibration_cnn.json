@@ -1,9 +1,9 @@
 {
   "arch": "cnn",
-  "calibrated_mse_threshold": 0.00457,
-  "p99_threshold": 0.003847588552162051,
-  "p95_threshold": 0.0024394416250288486,
-  "mean_healthy_mse": 0.0010440164298651448,
-  "num_calibration_frames": 301,
-  "timestamp": 1793802655.168204
+  "calibrated_mse_threshold": 0.00132,
+  "p99_threshold": 0.0010207947343587875,
+  "p95_threshold": 0.000532474194187671,
+  "mean_healthy_mse": 0.00014674648039823455,
+  "num_calibration_frames": 3191,
+  "timestamp": 1793806447.897975
 }
