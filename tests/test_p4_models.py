@@ -106,3 +106,25 @@ def test_stage2_and_stage3_standalone_trainers_smoke(tmp_path):
         lr=1e-3, in_channels=3, num_steps=4, beta=0.85, num_synthetic=8,
     )
     assert os.path.isfile(train_stage3(s3_args))
+
+
+def test_stage3_train_handles_1d_and_2d_targets(tmp_path):
+    from types import SimpleNamespace
+    from models.stage3_classifier.train import train as train_stage3
+    from unittest.mock import patch
+
+    # Mock dataset to return 1D integer targets instead of 2D one-hot vectors
+    with patch("models.stage3_classifier.train.Stage3DefectDataset") as mock_ds:
+        class Dummy1DDataset(torch.utils.data.Dataset):
+            def __len__(self):
+                return 4
+            def __getitem__(self, idx):
+                return torch.rand(3, 64, 64), torch.tensor(2, dtype=torch.long)
+
+        mock_ds.return_value = Dummy1DDataset()
+        s3_args = SimpleNamespace(
+            arch="cnn", data_dir=None, output_dir=str(tmp_path), epochs=1, batch_size=2,
+            lr=1e-3, in_channels=3, num_steps=4, beta=0.85, num_synthetic=4,
+        )
+        ckpt = train_stage3(s3_args)
+        assert os.path.isfile(ckpt)

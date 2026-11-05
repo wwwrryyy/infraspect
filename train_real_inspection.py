@@ -419,7 +419,9 @@ def main():
     parser.add_argument("--arch", choices=["all", "cnn", "snn"], default="all", help="Backbone architecture to train ('all', 'cnn', or 'snn')")
     args = parser.parse_args()
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
     print(f"[+] Device: {device}")
 
     # Step 1: Extract real patches from CrackForest, CrackSegmentation, and Bimewok

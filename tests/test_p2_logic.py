@@ -224,3 +224,21 @@ def test_scoped_sync_preserves_concurrent_inserts(tmp_path):
     # The late insert must remain pending for the next cycle
     assert mgr.get_pending_sync_count() == 1
     assert mgr.get_recent_inspections(limit=1)[0]["synced"] is False
+
+
+def test_extract_roi_crops_guarantees_length_invariant_and_clamps_boundary_boxes():
+    img = np.zeros((128, 128, 3), dtype=np.uint8)
+    boxes = [
+        [0, 0, 10, 10],            # Top-left corner
+        [120, 120, 20, 20],        # Bottom-right overflowing border
+        [150, 150, 10, 10],        # Coordinates beyond image bounds
+        [50, 50, 0, 0],            # Zero dimension
+        [64, 64, 20, 20],          # Normal interior box
+    ]
+
+    crops = TacticalDecisionLogic.extract_roi_crops(img, boxes, crop_size=64)
+    # Crucial invariant: exactly 1 crop per input box, preventing downstream IndexError
+    assert len(crops) == len(boxes)
+    for c in crops:
+        assert c.shape == (64, 64, 3)
+        assert c.dtype == np.uint8

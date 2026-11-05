@@ -334,18 +334,22 @@ class TacticalDecisionLogic:
             pad = int(max_dim * pad_fraction)
             side = max(16, max_dim + 2 * pad)
 
-            # Center coordinates
-            cx = x + w // 2
-            cy = y + h // 2
+            # Center coordinates clamped inside image bounds
+            cx = int(np.clip(x + w // 2, 0, max(0, w_img - 1)))
+            cy = int(np.clip(y + h // 2, 0, max(0, h_img - 1)))
 
             # Square bounds clamped to image
             x1 = max(0, cx - side // 2)
             y1 = max(0, cy - side // 2)
-            x2 = min(w_img, x1 + side)
-            y2 = min(h_img, y1 + side)
+            x2 = min(w_img, max(x1 + 1, x1 + side))
+            y2 = min(h_img, max(y1 + 1, y1 + side))
 
             patch = image[y1:y2, x1:x2]
-            if patch.size == 0:
+            if patch.size == 0 or patch.shape[0] == 0 or patch.shape[1] == 0:
+                # Guaranteed fallback preserving len(crops) == len(boxes) invariant
+                c_ch = image.shape[2] if image.ndim == 3 else 1
+                fallback = np.zeros((crop_size, crop_size, c_ch), dtype=image.dtype) if image.ndim == 3 else np.zeros((crop_size, crop_size), dtype=image.dtype)
+                crops.append(fallback)
                 continue
 
             # Ensure square via border padding if near edge

@@ -84,6 +84,15 @@ def test_sharp_resilience_offline_db():
             os.remove(db_path)
 
 
+def test_sharp_resilience_enable_network_monitor_flag(tmp_path):
+    db_file = tmp_path / "offline_no_thread.db"
+    mgr = SHARPOfflineResilienceManager(db_path=str(db_file), enable_network_monitor=False)
+    assert mgr.monitor_thread is None
+    assert mgr.auto_sync_running is False
+    # stop() should still be safely callable
+    mgr.stop()
+
+
 def test_speckle_corruptions():
     rng = np.random.default_rng(42)
     clean_2d = rng.uniform(0.1, 0.9, (64, 64)).astype(np.float32)

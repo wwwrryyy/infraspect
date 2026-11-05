@@ -95,3 +95,25 @@ def test_ingestor_restart_after_invalid_source():
         has_frame, _frame = engine.grab_frame()
         assert not has_frame
     engine.stop_stream()
+
+
+def test_cpp_anomaly_calculus_channel_mismatch_resilience():
+    engine = battlefield_core.BattlefieldEngine()
+    rgb = np.ones((32, 32, 3), dtype=np.float32) * 0.5
+    gray = np.ones((32, 32, 1), dtype=np.float32) * 0.5
+    rgba = np.ones((32, 32, 4), dtype=np.float32) * 0.5
+
+    # 3-channel vs 1-channel
+    mse_1, vis_1, mean_1 = engine.compute_anomaly(rgb, gray, 10.0)
+    assert mse_1.shape == (32, 32)
+    assert np.isclose(mean_1, 0.0, atol=1e-4)
+
+    # 1-channel vs 3-channel
+    mse_2, vis_2, mean_2 = engine.compute_anomaly(gray, rgb, 10.0)
+    assert mse_2.shape == (32, 32)
+    assert np.isclose(mean_2, 0.0, atol=1e-4)
+
+    # 4-channel vs 3-channel
+    mse_3, vis_3, mean_3 = engine.compute_anomaly(rgba, rgb, 10.0)
+    assert mse_3.shape == (32, 32)
+    assert np.isclose(mean_3, 0.0, atol=1e-4)

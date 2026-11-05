@@ -164,7 +164,7 @@ class PipelineRunner:
         if len(defects) > 0:
             boxes = [d["bbox"] for d in defects]
             crops = self.decision_logic.extract_roi_crops(restored_hwc, boxes, crop_size=64)
-            if len(crops) > 0:
+            if len(crops) > 0 and len(crops) == len(defects):
                 t_s3_start = time.perf_counter()
                 crops_batch = np.stack([c.transpose(2, 0, 1) for c in crops]).astype(np.float32)
                 logits = self.s3_session.run([self.s3_out], {self.s3_in: crops_batch})[0]
@@ -223,8 +223,7 @@ def run_benchmark(args):
     print("=" * 80)
 
     # Initialize Telemetry DB
-    resilience_mgr = SHARPOfflineResilienceManager(db_path=args.db_path)
-    resilience_mgr.auto_sync_running = False
+    resilience_mgr = SHARPOfflineResilienceManager(db_path=args.db_path, enable_network_monitor=False)
 
     rng = np.random.default_rng(42)
 

@@ -56,8 +56,7 @@ class LiveInspectionHUD:
 
         # Active runner
         self.runner = PipelineRunner(arch=self.arch, exports_dir=self.exports_dir, gsd_mm_per_px=self.gsd_mm_per_px)
-        self.resilience_mgr = SHARPOfflineResilienceManager(db_path=self.db_path)
-        self.resilience_mgr.auto_sync_running = False
+        self.resilience_mgr = SHARPOfflineResilienceManager(db_path=self.db_path, enable_network_monitor=False)
 
         # State
         self.is_paused = False
@@ -262,64 +261,65 @@ class LiveInspectionHUD:
         print(f"[+] Launching Live HUD [{self.arch.upper()}] ...")
         print("    Keys: [C] Toggle SNN/CNN | [+/-] Sensitivity | [G] Toggle GSD | [Q] Quit")
 
-        while True:
-            if max_frames is not None and self.frame_idx >= max_frames:
-                break
-
-            if not self.is_paused:
-                frame_rgb = self.get_frame()
-                self.frame_idx += 1
-
-                timing, defects, vis_map, restored_hwc = self.runner.run_frame(frame_rgb)
-
-                # Log defects with standardized pose schema in a single batch transaction
-                self.record_defects(defects)
-
-                hud_canvas = self.render_hud_dashboard(
-                    frame_rgb=frame_rgb,
-                    restored_rgb=restored_hwc,
-                    heatmap_jet=vis_map,
-                    defects=defects,
-                    timing=timing,
-                )
-
-                if headless:
-                    print(f"    Frame {self.frame_idx}: {timing['fps']:.1f} FPS, {timing['total_ms']:.2f} ms, {len(defects)} defect(s)")
-
-            if not headless:
-                cv2.imshow(window_name, hud_canvas)
-                key = cv2.waitKey(1) & 0xFF
-
-                if key in [ord("q"), ord("Q"), 27]:
+        try:
+            while True:
+                if max_frames is not None and self.frame_idx >= max_frames:
                     break
-                elif key in [ord("c"), ord("C"), 9]:  # Tab or C
-                    self.toggle_arch()
-                elif key in [ord("+"), ord("=")]:
-                    # Increasing sensitivity requires lower anomaly threshold
-                    new_th = max(0.001, round(self.runner.get_mse_threshold() - 0.005, 4))
-                    self.runner.set_mse_threshold(new_th)
-                    print(f"[+] Sensitivity INCREASED: MSE Threshold = {new_th}")
-                elif key in [ord("-"), ord("_")]:
-                    # Decreasing sensitivity requires higher anomaly threshold
-                    new_th = round(self.runner.get_mse_threshold() + 0.005, 4)
-                    self.runner.set_mse_threshold(new_th)
-                    print(f"[-] Sensitivity DECREASED: MSE Threshold = {new_th}")
-                elif key in [ord("g"), ord("G")]:
-                    self.gsd_mm_per_px = None if self.gsd_mm_per_px is not None else 0.08
-                    self.runner.gsd_mm_per_px = self.gsd_mm_per_px
-                    print(f"[*] GSD mm Estimation: {'ON (0.08 mm/px)' if self.gsd_mm_per_px else 'OFF (Pixel Mode)'}")
-                elif key == ord(" "):
-                    self.is_paused = not self.is_paused
-                    print(f"[*] {'PAUSED' if self.is_paused else 'RESUMED'}")
-                elif key in [ord("s"), ord("S")]:
-                    snap_name = f"snapshot_frame_{self.frame_idx}_{self.arch}.png"
-                    cv2.imwrite(snap_name, hud_canvas)
-                    print(f"[+] Snapshot saved: {snap_name}")
 
-        if not headless:
-            cv2.destroyAllWindows()
-        self.close_streams()
-        print("[+] HUD closed cleanly.")
+                if not self.is_paused:
+                    frame_rgb = self.get_frame()
+                    self.frame_idx += 1
+
+                    timing, defects, vis_map, restored_hwc = self.runner.run_frame(frame_rgb)
+
+                    # Log defects with standardized pose schema in a single batch transaction
+                    self.record_defects(defects)
+
+                    hud_canvas = self.render_hud_dashboard(
+                        frame_rgb=frame_rgb,
+                        restored_rgb=restored_hwc,
+                        heatmap_jet=vis_map,
+                        defects=defects,
+                        timing=timing,
+                    )
+
+                    if headless:
+                        print(f"    Frame {self.frame_idx}: {timing['fps']:.1f} FPS, {timing['total_ms']:.2f} ms, {len(defects)} defect(s)")
+
+                if not headless:
+                    cv2.imshow(window_name, hud_canvas)
+                    key = cv2.waitKey(1) & 0xFF
+
+                    if key in [ord("q"), ord("Q"), 27]:
+                        break
+                    elif key in [ord("c"), ord("C"), 9]:  # Tab or C
+                        self.toggle_arch()
+                    elif key in [ord("+"), ord("=")]:
+                        # Increasing sensitivity requires lower anomaly threshold
+                        new_th = max(0.001, round(self.runner.get_mse_threshold() - 0.005, 4))
+                        self.runner.set_mse_threshold(new_th)
+                        print(f"[+] Sensitivity INCREASED: MSE Threshold = {new_th}")
+                    elif key in [ord("-"), ord("_")]:
+                        # Decreasing sensitivity requires higher anomaly threshold
+                        new_th = round(self.runner.get_mse_threshold() + 0.005, 4)
+                        self.runner.set_mse_threshold(new_th)
+                        print(f"[-] Sensitivity DECREASED: MSE Threshold = {new_th}")
+                    elif key in [ord("g"), ord("G")]:
+                        self.gsd_mm_per_px = None if self.gsd_mm_per_px is not None else 0.08
+                        self.runner.gsd_mm_per_px = self.gsd_mm_per_px
+                        print(f"[*] GSD mm Estimation: {'ON (0.08 mm/px)' if self.gsd_mm_per_px else 'OFF (Pixel Mode)'}")
+                    elif key == ord(" "):
+                        self.is_paused = not self.is_paused
+                        print(f"[*] {'PAUSED' if self.is_paused else 'RESUMED'}")
+                    elif key in [ord("s"), ord("S")]:
+                        snap_name = f"snapshot_frame_{self.frame_idx}_{self.arch}.png"
+                        cv2.imwrite(snap_name, hud_canvas)
+                        print(f"[+] Snapshot saved: {snap_name}")
+        finally:
+            if not headless:
+                cv2.destroyAllWindows()
+            self.close_streams()
+            print("[+] HUD closed cleanly.")
 
 
 # ---------------------------------------------------------------------------
@@ -427,44 +427,45 @@ def run_dearpygui_dashboard(args):
 
     print("[+] DearPyGui Viewport active.")
 
-    while dpg.is_dearpygui_running():
-        frame_rgb = hud.get_frame()
-        hud.frame_idx += 1
+    try:
+        while dpg.is_dearpygui_running():
+            frame_rgb = hud.get_frame()
+            hud.frame_idx += 1
 
-        timing, defects, vis_map, restored_hwc = hud.runner.run_frame(frame_rgb)
+            timing, defects, vis_map, restored_hwc = hud.runner.run_frame(frame_rgb)
 
-        # Log defects to SQLite in single batch transaction
-        hud.record_defects(defects)
+            # Log defects to SQLite in single batch transaction
+            hud.record_defects(defects)
 
-        # Populate DearPyGui defect table with active detections
-        if dpg.does_item_exist("table_defects"):
-            children = dpg.get_item_children("table_defects", 1) or []
-            for child in children:
-                dpg.delete_item(child)
+            # Populate DearPyGui defect table with active detections
+            if dpg.does_item_exist("table_defects"):
+                children = dpg.get_item_children("table_defects", 1) or []
+                for child in children:
+                    dpg.delete_item(child)
 
-            for d in defects[:5]:
-                cls_name = d.get("defect_class", d.get("type", "defect")).upper()
-                cs_state = d.get("condition_state", "")[:3] if d.get("condition_state") else "N/A"
-                width_str = f"{d['est_width_mm']:.2f} mm" if d.get("est_width_mm") is not None else f"{d.get('est_width_px', 0.0):.1f} px"
-                with dpg.table_row(parent="table_defects"):
-                    dpg.add_text(cls_name)
-                    dpg.add_text(cs_state)
-                    dpg.add_text(width_str)
+                for d in defects[:5]:
+                    cls_name = d.get("defect_class", d.get("type", "defect")).upper()
+                    cs_state = d.get("condition_state", "")[:3] if d.get("condition_state") else "N/A"
+                    width_str = f"{d['est_width_mm']:.2f} mm" if d.get("est_width_mm") is not None else f"{d.get('est_width_px', 0.0):.1f} px"
+                    with dpg.table_row(parent="table_defects"):
+                        dpg.add_text(cls_name)
+                        dpg.add_text(cs_state)
+                        dpg.add_text(width_str)
 
-        overlay_bgr = hud.draw_defect_overlays(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR), defects)
-        latest_overlay["bgr"] = overlay_bgr
-        dpg.set_value("tex_raw", to_rgba(overlay_bgr))
-        dpg.set_value("tex_restored", to_rgba(cv2.cvtColor(restored_hwc, cv2.COLOR_RGB2BGR)))
-        dpg.set_value("tex_heatmap", to_rgba(vis_map))
+            overlay_bgr = hud.draw_defect_overlays(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR), defects)
+            latest_overlay["bgr"] = overlay_bgr
+            dpg.set_value("tex_raw", to_rgba(overlay_bgr))
+            dpg.set_value("tex_restored", to_rgba(cv2.cvtColor(restored_hwc, cv2.COLOR_RGB2BGR)))
+            dpg.set_value("tex_heatmap", to_rgba(vis_map))
 
-        dpg.set_value("lbl_fps", f"FPS: {timing['fps']:.1f}")
-        dpg.set_value("lbl_latency", f"Latency: {timing['total_ms']:.2f} ms")
+            dpg.set_value("lbl_fps", f"FPS: {timing['fps']:.1f}")
+            dpg.set_value("lbl_latency", f"Latency: {timing['total_ms']:.2f} ms")
 
-        dpg.render_dearpygui_frame()
-
-    dpg.destroy_context()
-    hud.close_streams()
-    print("[+] DearPyGui closed cleanly.")
+            dpg.render_dearpygui_frame()
+    finally:
+        dpg.destroy_context()
+        hud.close_streams()
+        print("[+] DearPyGui closed cleanly.")
 
 
 def main():

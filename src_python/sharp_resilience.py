@@ -26,13 +26,19 @@ class SHARPOfflineResilienceManager:
         self,
         db_path: str = "civil_inspection_telemetry.db",
         sync_callback: Optional[Callable[[list[dict]], bool]] = None,
+        enable_network_monitor: bool = True,
     ):
         self.db_path = db_path
         self.is_connected = False
         self.auto_sync_running = False
         self.sync_callback = sync_callback
+        self.enable_network_monitor = enable_network_monitor
         self._init_db()
-        self._start_network_monitor()
+        if self.enable_network_monitor:
+            self._start_network_monitor()
+        else:
+            self._stop_event = threading.Event()
+            self.monitor_thread = None
 
     def _init_db(self):
         """Initializes SQLite schema for both civil inspection records and legacy alerts."""
@@ -205,8 +211,9 @@ class SHARPOfflineResilienceManager:
     def stop(self):
         """Stops the background sync monitor thread."""
         self.auto_sync_running = False
-        self._stop_event.set()
-        if self.monitor_thread.is_alive() and self.monitor_thread is not threading.current_thread():
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
+        if hasattr(self, "monitor_thread") and self.monitor_thread is not None and self.monitor_thread.is_alive() and self.monitor_thread is not threading.current_thread():
             self.monitor_thread.join(timeout=5.0)
 
     def _network_loop(self):

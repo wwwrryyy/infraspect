@@ -61,7 +61,7 @@ def train(args):
         running_loss = 0.0
         for crops, labels in loader:
             crops = crops.to(device)
-            targets = labels.argmax(dim=1).to(device)
+            targets = labels.argmax(dim=1).to(device) if labels.ndim > 1 else labels.to(device)
 
             optimizer.zero_grad()
             logits = model(crops)

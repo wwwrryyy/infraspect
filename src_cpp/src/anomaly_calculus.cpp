@@ -30,6 +30,19 @@ float AnomalyCalculus::computePixelwiseMSE(const cv::Mat& raw_frame, const cv::M
         cv::resize(recon_float, recon_float, raw_float.size(), 0, 0, cv::INTER_LINEAR);
     }
 
+    // Ensure matching channel counts
+    if (raw_float.channels() != recon_float.channels()) {
+        if (raw_float.channels() == 3 && recon_float.channels() == 1) {
+            cv::cvtColor(recon_float, recon_float, cv::COLOR_GRAY2RGB);
+        } else if (raw_float.channels() == 1 && recon_float.channels() == 3) {
+            cv::cvtColor(raw_float, raw_float, cv::COLOR_GRAY2RGB);
+        } else if (raw_float.channels() == 4 && recon_float.channels() == 3) {
+            cv::cvtColor(raw_float, raw_float, cv::COLOR_RGBA2RGB);
+        } else if (raw_float.channels() == 3 && recon_float.channels() == 4) {
+            cv::cvtColor(recon_float, recon_float, cv::COLOR_RGBA2RGB);
+        }
+    }
+
     // Compute pixel-wise squared difference matrix: (Raw - Recon)^2
     cv::Mat diff;
     cv::absdiff(raw_float, recon_float, diff);
