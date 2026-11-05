@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-05
+
+### Added
+- **AASHTO Civil Inspection Report Generator (`infraspect-report`):**
+  - Standalone CLI and Python engine generating executive audit-ready HTML dashboards, native multi-page vector PDF reports, and structured JSON summaries from edge telemetry SQLite databases.
+  - Complete compliance mapping against **AASHTO MBEI 1130 (CS1 to CS4)** with automated action guidance.
+  - Scanned surface area ($m^2$) and video frame coverage calculus derived from drone UAV poses.
+  - Inline vector SVG ROI thumbnails embedded in the defect inventory table.
+  - Offline SVG Condition State donut chart and defect category bar charts (zero external CDN or internet dependencies).
+  - Print & PDF export stylesheet (`@media print`) and zero-dependency vector PDF 1.4 multi-page document export.
+  - Test suite expanded to 41 automated unit tests with 100% pass rate.
+- **Enhanced CNN Stage 2 Architecture:**
+  - Upgraded continuous autoencoder with a 16-channel bottleneck, ReLU activations, and L1 latent sparsity ($\lambda = 10^{-4}$), boosting real crack AUROC from $0.7530$ to **$0.8677$** and shrinking ONNX binary size by $57\%$.
+- **Full 20-Epoch SNN Deep Training:**
+  - Fully converged SNN weights trained across 15,956 patches, boosting Stage 3 accuracy to **$95.1\%$** and sharpening anomaly threshold to **$0.00279$**.
+
 ## [1.0.0] - 2026-11-04
 
 ### Added

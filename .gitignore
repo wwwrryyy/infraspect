@@ -34,5 +34,10 @@ data/raw/
 *.log
 scratch/
 
+# Generated inspection reports
+*report.html
+*report.json
+*report.pdf
+
 # OS metadata
 .DS_Store

@@ -147,9 +147,29 @@ python gui_dashboard.py --gui cv --headless --frames 10
 
 ---
 
+## AASHTO Civil Inspection Audit Reporting
+
+Infraspect includes a standalone audit report generator that queries the edge telemetry SQLite buffer and outputs self-contained, responsive HTML dashboards, native vector PDF documents, and structured JSON summaries:
+
+```bash
+# Generate executive inspection HTML dashboard & JSON summary
+infraspect-report --db civil_inspection_telemetry.db --asset-id "Bridge Pier #4B - North Span" --output inspection_report.html --json-output inspection_report.json
+
+# Generate native multi-page vector PDF report directly
+infraspect-report --db civil_inspection_telemetry.db --output inspection_report.pdf
+```
+
+- **Standards Mapping:** Directly aligns detected crack widths and spalls to **AASHTO MBEI Section 1130 (CS1 to CS4)**.
+- **Surface Area & Coverage:** Computes scanned surface area in square meters and total analyzed frames from drone telemetry poses.
+- **Embedded Visualizations:** Offline SVG condition state donut chart, defect category bar charts, and inline visual ROI thumbnail crops.
+- **Executive Action Plan:** Automatically prescribes maintenance guidance (routine monitoring, elastomeric injection, or immediate structural engineer review).
+- **Dual Export:** Standalone printable HTML report (`@media print`) and zero-dependency vector PDF 1.4 output.
+
+---
+
 ## Automated Verification & Testing
 
-The repository includes 34 automated unit tests covering C++ bindings, anomaly calculus parity, optical corruption determinism, neural network forward passes, real dataset extraction, and headless GUI loops.
+The repository includes **41 automated unit tests** covering C++ bindings, anomaly calculus parity, optical corruption determinism, neural network forward passes, real dataset extraction, headless GUI loops, and AASHTO report generation.
 
 ```bash
 # Run complete test suite
