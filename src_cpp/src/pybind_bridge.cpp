@@ -52,14 +52,17 @@ py::array_t<float> mat_to_numpy_zerocopy_f32(cv::Mat& mat) {
     return py::array_t<float>(shape, strides, reinterpret_cast<float*>(mat_owner->data), base);
 }
 
-cv::Mat numpy_float_to_mat(py::array_t<float> input_array) {
+cv::Mat numpy_float_to_mat(py::array_t<float, py::array::c_style | py::array::forcecast> input_array) {
     py::buffer_info buf = input_array.request();
+    if (buf.ndim < 2) {
+        return cv::Mat();
+    }
     int rows = static_cast<int>(buf.shape[0]);
     int cols = static_cast<int>(buf.shape[1]);
     int channels = (buf.ndim == 3) ? static_cast<int>(buf.shape[2]) : 1;
     int type = (channels == 3) ? CV_32FC3 : CV_32FC1;
 
-    // Direct buffer view during synchronous call
+    // Direct contiguous buffer view during synchronous call
     return cv::Mat(rows, cols, type, buf.ptr);
 }
 
@@ -119,7 +122,9 @@ public:
      * @brief Computes anomaly heatmap between Stage 1 restored frame and Stage 2 reconstructed baseline.
      * @return (mse_heatmap_zerocopy: np.ndarray, visual_heatmap_zerocopy: np.ndarray, mean_mse: float)
      */
-    py::tuple computeAnomaly(py::array_t<float> restored_input, py::array_t<float> recon_input, float latency_ms = 15.0f) {
+    py::tuple computeAnomaly(py::array_t<float, py::array::c_style | py::array::forcecast> restored_input,
+                             py::array_t<float, py::array::c_style | py::array::forcecast> recon_input,
+                             float latency_ms = 15.0f) {
         cv::Mat restored_mat = numpy_float_to_mat(restored_input);
         cv::Mat recon_mat = numpy_float_to_mat(recon_input);
 
@@ -139,7 +144,7 @@ public:
     /**
      * @brief Legacy backward-compatible processing loop.
      */
-    py::tuple processNextFrame(py::array_t<float> recon_input) {
+    py::tuple processNextFrame(py::array_t<float, py::array::c_style | py::array::forcecast> recon_input) {
         cv::Mat raw;
         bool has_frame = ingestor_.getNextFrame(raw, 20);
         if (!has_frame) {
@@ -176,6 +181,10 @@ public:
         return sharp_.getHealthStateString();
     }
 
+    int getScaleFactor() const {
+        return sharp_.getScaleFactor();
+    }
+
     double getFPS() const {
         return ingestor_.getCurrentFPS();
     }
@@ -196,6 +205,7 @@ PYBIND11_MODULE(battlefield_core, m) {
         .def("compute_anomaly", &BattlefieldEngine::computeAnomaly, py::arg("restored_input"), py::arg("recon_input"), py::arg("latency_ms") = 15.0f)
         .def("process_next_frame", &BattlefieldEngine::processNextFrame)
         .def("get_health_status", &BattlefieldEngine::getHealthStatus)
+        .def("get_scale_factor", &BattlefieldEngine::getScaleFactor)
         .def("get_fps", &BattlefieldEngine::getFPS)
         .def("get_queue_size", &BattlefieldEngine::getQueueSize);
 

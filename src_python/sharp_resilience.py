@@ -36,7 +36,11 @@ class SHARPOfflineResilienceManager:
 
     def _init_db(self):
         """Initializes SQLite schema for both civil inspection records and legacy alerts."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            pass
         cursor = conn.cursor()
 
         # Civil Infrastructure Inspection Log Table
@@ -74,27 +78,38 @@ class SHARPOfflineResilienceManager:
         conn.close()
 
     def log_inspection_offline(self, defect_record: dict):
-        """Logs a civil defect observation locally."""
-        conn = sqlite3.connect(self.db_path)
+        """Logs a single civil defect observation locally."""
+        self.log_inspections_batch([defect_record])
+
+    def log_inspections_batch(self, defect_records: list[dict]):
+        """Atomically logs multiple civil defect observations in a single transaction."""
+        if not defect_records:
+            return
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
-        cursor.execute("""
+        now = time.time()
+        rows = [
+            (
+                d.get("timestamp", now),
+                d.get("id", i + 1),
+                d.get("defect_class", d.get("type", "UNKNOWN")),
+                d.get("standard", "AASHTO_MBEI_1130"),
+                d.get("condition_state", "CS_PENDING"),
+                d.get("confidence", 0.0),
+                d.get("mse_score", d.get("score", 0.0)),
+                d.get("est_width_mm"),
+                json.dumps(d.get("bbox", [])),
+                json.dumps(d.get("pose", {})),
+            )
+            for i, d in enumerate(defect_records)
+        ]
+        cursor.executemany("""
             INSERT INTO inspection_logs (
                 timestamp, defect_id, defect_class, advisory_standard,
                 condition_state, confidence, mse_score, est_width_mm,
                 bbox_json, pose_json, synced
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-        """, (
-            defect_record.get("timestamp", time.time()),
-            defect_record.get("id", 1),
-            defect_record.get("defect_class", defect_record.get("type", "UNKNOWN")),
-            defect_record.get("standard", "AASHTO_MBEI_1130"),
-            defect_record.get("condition_state", "CS_PENDING"),
-            defect_record.get("confidence", 0.0),
-            defect_record.get("mse_score", defect_record.get("score", 0.0)),
-            defect_record.get("est_width_mm"),
-            json.dumps(defect_record.get("bbox", [])),
-            json.dumps(defect_record.get("pose", {})),
-        ))
+        """, rows)
         conn.commit()
         conn.close()
 
@@ -118,7 +133,7 @@ class SHARPOfflineResilienceManager:
 
     def get_pending_sync_count(self) -> int:
         """Returns total un-synchronized records across inspection and threat logs."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM inspection_logs WHERE synced = 0")
         insp_count = cursor.fetchone()[0]
@@ -129,7 +144,7 @@ class SHARPOfflineResilienceManager:
 
     def get_recent_inspections(self, limit: int = 10) -> list[dict]:
         """Fetches the most recent civil defect inspection records."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, timestamp, defect_class, advisory_standard, condition_state,
@@ -158,7 +173,7 @@ class SHARPOfflineResilienceManager:
 
     def get_recent_logs(self, limit: int = 10) -> list[dict]:
         """Fetches legacy threat logs."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, timestamp, threat_type, confidence, mse_score, bbox_json, synced "
@@ -198,7 +213,7 @@ class SHARPOfflineResilienceManager:
 
     def _synchronize_logs(self):
         """Synchronizes local offline logs via pluggable sync callback stub."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
 
         # If a custom sync callback is attached, invoke it with un-synced items

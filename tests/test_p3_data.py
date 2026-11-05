@@ -86,6 +86,18 @@ def test_concrete_generator_and_defects():
     assert np.sum(s_mask > 0) > 0
     assert s_labels[2] == 1
 
+    # Inject efflorescence (class 3)
+    e_patch, e_mask, e_labels = inject_synthetic_defect(patch, "efflorescence", rng=rng)
+    assert np.sum(e_mask > 0) > 0
+    assert e_labels[3] == 1
+    assert e_patch.min() >= 0.0 and e_patch.max() <= 1.0
+
+    # Inject exposed rebar (class 4)
+    b_patch, b_mask, b_labels = inject_synthetic_defect(patch, "exposed_bars", rng=rng)
+    assert np.sum(b_mask > 0) > 0
+    assert b_labels[4] == 1
+    assert b_patch.min() >= 0.0 and b_patch.max() <= 1.0
+
     # Inject corrosion
     r_patch, r_mask, r_labels = inject_synthetic_defect(patch, "corrosion_stain", rng=rng)
     assert r_labels[5] == 1

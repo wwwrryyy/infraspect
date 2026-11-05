@@ -138,6 +138,59 @@ def inject_synthetic_defect(
         else:
             result = np.where(spall_mask, 0.32 + rng.normal(0, 0.04, result.shape), result)
 
+    elif defect_type == "efflorescence":
+        labels[3] = 1
+        # White calcium carbonate salt leaching / lime streaks
+        cx = int(rng.integers(int(w * 0.2), int(w * 0.8)))
+        cy = int(rng.integers(int(h * 0.2), int(h * 0.8)))
+        axes = (int(rng.integers(15, 45)), int(rng.integers(8, 25)))
+        angle = rng.uniform(0, 180)
+        cv2.ellipse(mask, (cx, cy), axes, angle, 0, 360, 255, -1)
+
+        eff_mask = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (9, 9), 3.0)
+        salt_noise = rng.normal(0.0, 0.05, (h, w)).astype(np.float32)
+        salt_layer = np.clip(eff_mask * 0.40 + salt_noise * eff_mask, 0.0, 0.55)
+
+        if patch.ndim == 3:
+            salt_3d = salt_layer[:, :, np.newaxis]
+            result = np.clip(result + salt_3d, 0.0, 1.0)
+        else:
+            result = np.clip(result + salt_layer, 0.0, 1.0)
+
+    elif defect_type == "exposed_bars":
+        labels[4] = 1
+        # Spalled concrete cavity exposing embedded linear rebar
+        cx = int(rng.integers(int(w * 0.3), int(w * 0.7)))
+        cy = int(rng.integers(int(h * 0.3), int(h * 0.7)))
+        axes = (int(rng.integers(20, 40)), int(rng.integers(20, 40)))
+        angle = rng.uniform(0, 180)
+        cv2.ellipse(mask, (cx, cy), axes, angle, 0, 360, 255, -1)
+
+        spall_mask = (mask > 0)
+        if patch.ndim == 3:
+            cavity_color = np.array([0.28, 0.26, 0.24], dtype=np.float32)
+            result = np.where(spall_mask[:, :, np.newaxis], cavity_color, result)
+        else:
+            result = np.where(spall_mask, 0.26, result)
+
+        # Draw exposed linear rebar rod through the cavity
+        bar_mask = np.zeros((h, w), dtype=np.uint8)
+        bar_angle = rng.uniform(-45, 45)
+        rad = np.deg2rad(bar_angle)
+        x1 = int(cx - 35 * np.cos(rad))
+        y1 = int(cy - 35 * np.sin(rad))
+        x2 = int(cx + 35 * np.cos(rad))
+        y2 = int(cy + 35 * np.sin(rad))
+        bar_thick = int(rng.choice([3, 4]))
+        cv2.line(bar_mask, (x1, y1), (x2, y2), 255, thickness=bar_thick)
+        bar_active = (bar_mask > 0) & spall_mask
+
+        if patch.ndim == 3:
+            rebar_color = np.array([0.55, 0.28, 0.14], dtype=np.float32)  # Oxidized rusty rebar
+            result[bar_active] = rebar_color
+        else:
+            result[bar_active] = 0.35
+
     elif defect_type == "corrosion_stain":
         labels[5] = 1
         # Diffuse amber/rust bloom
@@ -329,10 +382,10 @@ class Stage3DefectDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.synthetic:
-            # 20% background, 35% crack, 25% spalling, 20% corrosion stain
+            # 6-class CODEBRIM distribution: background, crack, spalling, efflorescence, exposed_bars, corrosion_stain
             defect_type = self.rng.choice(
-                ["background", "crack", "spalling", "corrosion_stain"],
-                p=[0.20, 0.35, 0.25, 0.20],
+                ["background", "crack", "spalling", "efflorescence", "exposed_bars", "corrosion_stain"],
+                p=[0.15, 0.30, 0.15, 0.15, 0.10, 0.15],
             )
             base = generate_concrete_patch(
                 height=self.crop_size,

@@ -31,13 +31,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
+          pip install -e .
 
       - name: Compile C++ PyBind11 Module
         run: |
           cmake -B src_cpp/build -S src_cpp
           cmake --build src_cpp/build --config Release
 
-      - name: Run Test Suite (33 Unit Tests)
+      - name: Run Automated Test Suite
         run: |
           PYTHONPATH=. pytest -v tests/
 
@@ -49,3 +50,8 @@ jobs:
         run: |
           PYTHONPATH=. python gui_dashboard.py --gui cv --headless --frames 5
           PYTHONPATH=. python gui_dashboard.py --gui dpg --headless --frames 5
+
+      - name: Run AASHTO Inspection Audit Report Generator Verification
+        run: |
+          infraspect-report --db-path civil_inspection_telemetry.db --output /tmp/ci_report.html --json-output /tmp/ci_report.json
+          infraspect-report --db-path civil_inspection_telemetry.db --output /tmp/ci_report.pdf

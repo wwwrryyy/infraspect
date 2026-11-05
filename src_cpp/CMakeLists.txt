@@ -25,8 +25,10 @@ if(PYBIND11_CMAKE_DIR)
     list(APPEND CMAKE_PREFIX_PATH "${PYBIND11_CMAKE_DIR}")
 endif()
 
-# 2. Add Miniforge base prefix where OpenCV 5 CMake config resides
-list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/Caskroom/miniforge/base")
+# 2. Add optional Miniforge prefix if present
+if(EXISTS "/opt/homebrew/Caskroom/miniforge/base")
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/Caskroom/miniforge/base")
+endif()
 
 find_package(pybind11 CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)

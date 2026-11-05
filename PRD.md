@@ -6,15 +6,15 @@ PRD 1: Civil Infrastructure & Structural Health Monitoring (Autonomous Inspectio
 ⚬ Align severity scoring with industry standards (AASHTO, API 570, ASME B31.3) and integrate with BIM geo-tagged mapping.
 
 2. Data Synthesis & Preprocessing
-⚬ Adapt models/despeckler/corruption.py to simulate illumination gradients, water droplets, vibration motion blur, and specular glare.
+⚬ Utilize models/stage1_denoiser/corruption.py to simulate illumination gradients, water droplets, vibration motion blur, and specular glare.
 ⚬ Utilize CODEBRIM, SDNET2018, Crack500, and pipeline inspection datasets for defect classification.
 ⚬ Train Stage 2 strictly on negative-only data (healthy surfaces) with zero defective samples.
 
 3. Model Architecture
 Component	Specification
-Denoiser	SpikingUNet (S-UNet) from models/despeckler/model.py; LIF (β=0.85); V_mem readout; Surrogate gradients (Fast Sigmoid, slope=25); MSE+SSIM loss
-Anomaly Detector	SNNAutoencoder (Camouflage Piercer) from model_training/SNN_Architecture.py; Convolutional spiking autoencoder; Pixel-wise MSE
-Classifier	Spiking MobileNetV3 Classifier; Depthwise separable convs + LIF; Rate coding readout with temperature scaling; 64x64 crops; Cross-Entropy loss
+Denoiser	SpikingUNet (S-UNet) from models/stage1_denoiser/model.py; LIF (β=0.85); V_mem readout; Surrogate gradients (Fast Sigmoid, slope=25); MSE+SSIM loss
+Anomaly Detector	SNNAutoencoder from models/stage2_detector/autoencoder.py; Convolutional spiking autoencoder; Pixel-wise MSE
+Classifier	Spiking MobileNetV3 Classifier from models/stage3_classifier/model.py; Depthwise separable convs + LIF; Rate coding readout with temperature scaling; 64x64 crops; Cross-Entropy loss
 Decision Logic	TacticalDecisionLogic (src_python/tactical_logic.py); Morphological filtering; Contour extraction; NMS with IoU clustering
 Compute Engine	AnomalyCalculus (src_cpp/include/anomaly_calculus.hpp); C++ pixel-wise MSE; Gaussian smoothing; Heatmap generation
 

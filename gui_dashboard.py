@@ -66,10 +66,16 @@ class LiveInspectionHUD:
         self.history_fps = []
 
         # Open video source if specified
-        if self.source not in ["synthetic", "camera"] and os.path.isfile(self.source):
-            self.cap = cv2.VideoCapture(self.source)
-        elif self.source == "camera":
-            self.cap = cv2.VideoCapture(0)
+        self.use_cpp_stream = False
+        if self.source in ["camera", "0"] or (self.source != "synthetic" and os.path.isfile(self.source)):
+            if self.runner.cpp_engine is not None:
+                self.runner.cpp_engine.start_stream(self.source)
+                self.use_cpp_stream = True
+                self.cap = None
+            elif self.source in ["camera", "0"]:
+                self.cap = cv2.VideoCapture(0)
+            else:
+                self.cap = cv2.VideoCapture(self.source)
         else:
             self.cap = None
 
@@ -80,6 +86,11 @@ class LiveInspectionHUD:
         self.runner = PipelineRunner(arch=self.arch, exports_dir=self.exports_dir, gsd_mm_per_px=self.gsd_mm_per_px)
 
     def get_frame(self) -> np.ndarray:
+        if self.use_cpp_stream and self.runner.cpp_engine is not None:
+            has_frame, frame_rgb = self.runner.cpp_engine.grab_frame()
+            if has_frame and frame_rgb is not None:
+                return frame_rgb
+
         if self.cap is not None:
             ret, frame = self.cap.read()
             if not ret or frame is None:
@@ -125,6 +136,19 @@ class LiveInspectionHUD:
             cv2.putText(vis, label, (x + 3, max(10, y - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
 
         return vis
+
+    def record_defects(self, defects: list[dict]) -> None:
+        """Injects standardized pose telemetry and logs batch to resilience DB."""
+        now_ts = time.time()
+        for d in defects:
+            d["timestamp"] = now_ts
+            d["pose"] = {
+                "frame_idx": self.frame_idx,
+                "x": self.frame_idx * 0.05,
+                "y": 0.0,
+                "z": 1.5,
+            }
+        self.resilience_mgr.log_inspections_batch(defects)
 
     def render_hud_dashboard(
         self,
@@ -232,11 +256,8 @@ class LiveInspectionHUD:
 
                 timing, defects, vis_map, restored_hwc = self.runner.run_frame(frame_rgb)
 
-                # Log defects
-                for d in defects:
-                    d["timestamp"] = time.time()
-                    d["pose"] = {"frame": self.frame_idx}
-                    self.resilience_mgr.log_inspection_offline(d)
+                # Log defects with standardized pose schema in a single batch transaction
+                self.record_defects(defects)
 
                 hud_canvas = self.render_hud_dashboard(
                     frame_rgb=frame_rgb,
@@ -281,6 +302,8 @@ class LiveInspectionHUD:
 
         if not headless:
             cv2.destroyAllWindows()
+        if self.use_cpp_stream and self.runner.cpp_engine is not None:
+            self.runner.cpp_engine.stop_stream()
         if self.cap is not None:
             self.cap.release()
         print("[+] HUD closed cleanly.")
@@ -391,11 +414,23 @@ def run_dearpygui_dashboard(args):
 
         timing, defects, vis_map, restored_hwc = hud.runner.run_frame(frame_rgb)
 
-        # Log defects to SQLite
-        for d in defects:
-            d["timestamp"] = time.time()
-            d["pose"] = {"frame": hud.frame_idx}
-            hud.resilience_mgr.log_inspection_offline(d)
+        # Log defects to SQLite in single batch transaction
+        hud.record_defects(defects)
+
+        # Populate DearPyGui defect table with active detections
+        if dpg.does_item_exist("table_defects"):
+            children = dpg.get_item_children("table_defects", 1) or []
+            for child in children:
+                dpg.delete_item(child)
+
+            for d in defects[:5]:
+                cls_name = d.get("defect_class", d.get("type", "defect")).upper()
+                cs_state = d.get("condition_state", "")[:3] if d.get("condition_state") else "N/A"
+                width_str = f"{d['est_width_mm']:.2f} mm" if d.get("est_width_mm") is not None else f"{d.get('est_width_px', 0.0):.1f} px"
+                with dpg.table_row(parent="table_defects"):
+                    dpg.add_text(cls_name)
+                    dpg.add_text(cs_state)
+                    dpg.add_text(width_str)
 
         overlay_bgr = hud.draw_defect_overlays(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR), defects)
 

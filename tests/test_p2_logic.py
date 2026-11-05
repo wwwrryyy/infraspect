@@ -119,3 +119,69 @@ def test_civil_inspection_telemetry_and_sync():
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
+
+
+def test_resolution_scaling_gsd_invariance():
+    from deploy_inference import PipelineRunner
+
+    # Compare 128x128 baseline against 256x256 scaled camera frame of the same physical structure
+    runner_128 = PipelineRunner(arch="cnn", gsd_mm_per_px=0.10)
+    runner_256 = PipelineRunner(arch="cnn", gsd_mm_per_px=0.05)
+
+    img_128 = np.ones((128, 128, 3), dtype=np.uint8) * 128
+    cv2.line(img_128, (30, 30), (70, 70), (0, 0, 0), thickness=2)
+
+    img_256 = np.ones((256, 256, 3), dtype=np.uint8) * 128
+    cv2.line(img_256, (60, 60), (140, 140), (0, 0, 0), thickness=4)
+
+    timing_256, defects_256, vis_map, restored = runner_256.run_frame(img_256)
+    timing_128, defects_128, _, _ = runner_128.run_frame(img_128)
+
+    # In 256x256, visual heatmap and restored frame should match input resolution
+    assert vis_map.shape[:2] == (256, 256)
+    assert restored.shape[:2] == (256, 256)
+    assert timing_256["fps"] > 0
+
+    assert len(defects_128) > 0
+    assert len(defects_256) > 0
+
+    # Physical crack width and AASHTO condition state must match across resolutions
+    d128 = defects_128[0]
+    d256 = defects_256[0]
+    assert d128["condition_state"] == d256["condition_state"]
+    assert abs(d128["est_width_mm"] - d256["est_width_mm"]) < 1.0
+
+    # Rescaled bounding box must stay within 256x256 bounds
+    x, y, w, h = d256["bbox"]
+    assert 0 <= x < 256 and 0 <= y < 256
+    assert x + w <= 256 and y + h <= 256
+
+
+def test_batch_inspections_logging(tmp_path):
+    db_file = tmp_path / "batch_test.db"
+    mgr = SHARPOfflineResilienceManager(db_path=str(db_file))
+    mgr.auto_sync_running = False
+
+    records = [
+        {
+            "id": i + 1,
+            "defect_class": "crack" if i % 2 == 0 else "spalling",
+            "standard": "AASHTO_MBEI_1130",
+            "condition_state": "CS2",
+            "confidence": 0.88,
+            "score": 0.05,
+            "est_width_mm": 0.5,
+            "bbox": [10, 10, 20, 20],
+            "pose": {"frame_idx": i, "x": i * 0.1, "y": 0.0, "z": 1.5},
+        }
+        for i in range(10)
+    ]
+
+    # Batch logging must insert all records in one atomic transaction
+    mgr.log_inspections_batch(records)
+    assert mgr.get_pending_sync_count() == 10
+
+    recent = mgr.get_recent_inspections(limit=15)
+    assert len(recent) == 10
+    assert recent[0]["pose"]["frame_idx"] == 9
+

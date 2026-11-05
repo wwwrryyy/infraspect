@@ -147,12 +147,21 @@ class PipelineRunner:
             visual_heatmap = cv2.applyColorMap(norm_uint8, cv2.COLORMAP_JET)
         t3 = time.perf_counter()
 
+        scale_x = w_orig / float(target_w) if (h_orig, w_orig) != (target_h, target_w) else 1.0
+        scale_y = h_orig / float(target_h) if (h_orig, w_orig) != (target_h, target_w) else 1.0
+        scale_factor = float(np.hypot(scale_x, scale_y) / np.sqrt(2.0)) if (h_orig, w_orig) != (target_h, target_w) else 1.0
+
+        # Adjust effective GSD for downscaled inference:
+        # A 1-px crack in 128x128 covers `scale_factor` original pixels in the source camera frame.
+        effective_gsd = (self.gsd_mm_per_px * scale_factor) if self.gsd_mm_per_px is not None else None
+
         # Decision Logic: NMS, thin-crack filtering
-        defects, _ = self.decision_logic.detect_defects(mse_heatmap, gsd_mm_per_px=self.gsd_mm_per_px)
+        defects, _ = self.decision_logic.detect_defects(mse_heatmap, gsd_mm_per_px=effective_gsd)
         t4 = time.perf_counter()
 
         # Stage 3: Classifier on aspect-padded 64x64 crops
         t_s3_elapsed = 0.0
+        filtered_defects = []
         if len(defects) > 0:
             boxes = [d["bbox"] for d in defects]
             crops = self.decision_logic.extract_roi_crops(restored_hwc, boxes, crop_size=64)
@@ -160,18 +169,30 @@ class PipelineRunner:
                 t_s3_start = time.perf_counter()
                 crops_batch = np.stack([c.transpose(2, 0, 1) for c in crops]).astype(np.float32)
                 logits = self.s3_session.run([self.s3_out], {self.s3_in: crops_batch})[0]
-                probs = 1.0 / (1.0 + np.exp(-logits))  # Sigmoid
+
+                # Temperature-calibrated Softmax over defect classes
+                exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))
+                probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
                 for i, d in enumerate(defects):
                     top_idx = int(np.argmax(probs[i]))
-                    d["defect_class"] = DEFECT_CLASSES[top_idx]
-                    d["classifier_prob"] = float(probs[i, top_idx])
+                    predicted_class = DEFECT_CLASSES[top_idx]
+                    class_prob = float(probs[i, top_idx])
+
+                    # Filter out candidate regions where Stage 3 identifies nominal background
+                    if top_idx == 0 and class_prob >= 0.50:
+                        continue
+
+                    # Delegate domain classification and AASHTO condition state evaluation
+                    self.decision_logic.update_defect_with_classification(d, predicted_class, class_prob)
+                    filtered_defects.append(d)
                 t_s3_elapsed = time.perf_counter() - t_s3_start
+            defects = filtered_defects
+        else:
+            defects = []
 
         # Rescale defect bboxes and visual heatmap back to original frame dimensions
         if (h_orig, w_orig) != (target_h, target_w):
-            scale_x = w_orig / float(target_w)
-            scale_y = h_orig / float(target_h)
             for d in defects:
                 bx, by, bw, bh = d["bbox"]
                 d["bbox"] = [
@@ -180,6 +201,8 @@ class PipelineRunner:
                     int(round(bw * scale_x)),
                     int(round(bh * scale_y)),
                 ]
+                if "est_width_px" in d:
+                    d["est_width_px"] = float(round(d["est_width_px"] * scale_factor, 2))
             visual_heatmap = cv2.resize(visual_heatmap, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
 
         t_end = time.perf_counter()

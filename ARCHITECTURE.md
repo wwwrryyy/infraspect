@@ -43,9 +43,10 @@ flowchart TD
 
 | Component | Implementation File | Usage in Pipeline |
 |---|---|---|
-| SpikingUNet (S-UNet) | `models/despeckler/model.py` | Stage 1 Denoiser (LIF, β=0.85, V_mem readout, SpikingConvBlock) |
-| Corruption Engine | `models/despeckler/corruption.py` | Simulates glare, blur, and droplet artifacts during training |
-| SNNAutoencoder | `model_training/SNN_Architecture.py` | Stage 2 Anomaly Detector (Camouflage Piercer) |
+| SpikingUNet (S-UNet) | `models/stage1_denoiser/model.py` | Stage 1 Denoiser (LIF, β=0.85, V_mem readout, SpikingConvBlock) |
+| Corruption Engine | `models/stage1_denoiser/corruption.py` | Simulates glare, blur, and droplet artifacts during training |
+| SNNAutoencoder | `models/stage2_detector/autoencoder.py` | Stage 2 Negative-Only Anomaly Detector (Camouflage Piercer) |
+| MobileNetV3 Classifier | `models/stage3_classifier/model.py` | Stage 3 Multi-Label Defect Classifier (6-Class CODEBRIM) |
 | AnomalyCalculus | `src_cpp/include/anomaly_calculus.hpp` | Pixel-wise MSE heatmap generation in C++ |
 | TacticalDecisionLogic | `src_python/tactical_logic.py` | Morphological filtering, contour extraction, and NMS clustering |
 | SHARP Resilience Manager | `src_python/sharp_resilience.py` | Offline SQLite telemetry buffering and background auto-sync |

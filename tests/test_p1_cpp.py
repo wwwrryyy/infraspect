@@ -53,3 +53,19 @@ def test_ingestor_invalid_source_non_crash():
     assert not has_frame
     assert frame is None
     engine.stop_stream()
+
+
+def test_non_contiguous_array_safety():
+    engine = battlefield_core.BattlefieldEngine()
+    # Create non-contiguous sliced arrays (stride != continuous)
+    big_a = np.ones((64, 64, 3), dtype=np.float32)
+    big_b = np.zeros((64, 64, 3), dtype=np.float32)
+    slice_a = big_a[::2, ::2, :]
+    slice_b = big_b[::2, ::2, :]
+    assert not slice_a.flags["C_CONTIGUOUS"]
+
+    # Must process cleanly without memory misalignment or crash
+    mse_arr, vis_arr, mean_val = engine.compute_anomaly(slice_a, slice_b, 15.0)
+    assert mean_val > 0.0
+    assert mse_arr.shape == (32, 32)
+    assert engine.get_scale_factor() in [1, 2]

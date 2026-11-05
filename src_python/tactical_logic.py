@@ -273,6 +273,26 @@ class TacticalDecisionLogic:
             "standard": standard,
         }
 
+    def update_defect_with_classification(
+        self,
+        defect: dict,
+        predicted_class: str,
+        class_prob: float,
+    ) -> None:
+        """Harmonizes defect confidence and updates AASHTO condition state based on physical defect class."""
+        defect["defect_class"] = predicted_class
+        defect["classifier_prob"] = class_prob
+        defect["confidence"] = round(float(0.5 * defect["confidence"] + 0.5 * class_prob), 4)
+
+        # AASHTO MBEI 1130: exposed rebar / severe delamination is critical (CS4)
+        # Spalling or active corrosion staining elevates state to at least CS3
+        if predicted_class == "exposed_bars":
+            defect["condition_state"] = "CS4 (Severe / Structural Review >2.0mm)"
+        elif predicted_class in ["spalling", "corrosion_stain"]:
+            curr_cs = defect.get("condition_state", "")
+            if "CS1" in curr_cs or "CS2" in curr_cs or "CS_PENDING" in curr_cs:
+                defect["condition_state"] = "CS3 (Poor / 1.25-2.0mm)"
+
     @staticmethod
     def extract_roi_crops(
         image: np.ndarray,

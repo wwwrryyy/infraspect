@@ -335,7 +335,10 @@ class RealStage3ClassifierDataset(Dataset):
             x1 = self.rng.integers(0, max(1, h_patch.shape[1] - self.crop_size))
             sub_patch = h_patch[y1 : y1 + self.crop_size, x1 : x1 + self.crop_size].copy()
 
-            defect_type = self.rng.choice(["spalling", "corrosion_stain", "background"])
+            defect_type = self.rng.choice(
+                ["spalling", "efflorescence", "exposed_bars", "corrosion_stain", "background"],
+                p=[0.25, 0.20, 0.15, 0.25, 0.15],
+            )
             if defect_type != "background":
                 sub_patch, _, labels_vec = inject_synthetic_defect(sub_patch, defect_type=defect_type, rng=self.rng)
                 label = int(np.argmax(labels_vec))

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "infraspect"
-version = "1.0.0"
+version = "1.1.0"
 description = "Autonomous Civil Infrastructure & Structural Health Monitoring: Real-Time Edge Inspection via Spiking Neural Networks and Continuous CNNs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ dynamic = ["dependencies"]
 dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools]
-py-modules = ["deploy_inference", "gui_dashboard", "train_real_inspection"]
+py-modules = ["deploy_inference", "gui_dashboard", "train_real_inspection", "calibrate_threshold"]
 
 [tool.setuptools.packages.find]
 where = ["."]
