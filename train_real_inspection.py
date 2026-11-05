@@ -399,6 +399,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs per stage")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
     parser.add_argument("--max-patches", type=int, default=600, help="Maximum number of patches to extract")
+    parser.add_argument("--arch", choices=["all", "cnn", "snn"], default="all", help="Backbone architecture to train ('all', 'cnn', or 'snn')")
     args = parser.parse_args()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -423,7 +424,8 @@ def main():
 
     summary = {}
 
-    for arch in ["cnn", "snn"]:
+    arches = ["cnn", "snn"] if args.arch == "all" else [args.arch]
+    for arch in arches:
         print("\n" + "=" * 70)
         print(f" PIPELINE TRAINING: {arch.upper()} BACKBONE")
         print("=" * 70)

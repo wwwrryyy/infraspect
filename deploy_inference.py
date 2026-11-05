@@ -300,7 +300,7 @@ def parse_args():
     p.add_argument("--arch", type=str, default="compare", choices=["snn", "cnn", "compare"])
     p.add_argument("--source", type=str, default="synthetic")
     p.add_argument("--benchmark", action="store_true", default=True)
-    p.add_argument("--num-frames", type=int, default=30)
+    p.add_argument("--num-frames", "--frames", dest="num_frames", type=int, default=30, help="Number of frames to benchmark")
     p.add_argument("--height", type=int, default=128)
     p.add_argument("--width", type=int, default=128)
     p.add_argument("--exports-dir", type=str, default="exports")
