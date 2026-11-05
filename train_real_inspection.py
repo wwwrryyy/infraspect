@@ -66,7 +66,10 @@ from src_python.tactical_logic import compute_pixelwise_mse_numpy
 
 
 def evaluate_pixel_auroc_real(model, eval_dataset, device, num_eval: int = 40) -> float:
-    """Evaluates pixel-level AUROC on real defective concrete patches and ground-truth crack masks."""
+    """Evaluates pixel-level AUROC on real defective concrete patches and ground-truth crack masks.
+
+    Applies Gaussian smoothing (sigma=0.8) matching the C++ AnomalyCalculus production engine.
+    """
     model.eval()
     all_scores = []
     all_targets = []
@@ -78,8 +81,9 @@ def evaluate_pixel_auroc_real(model, eval_dataset, device, num_eval: int = 40) -
             x = patch_t.unsqueeze(0).to(device)
             recon = model(x)
 
-            # Pixel-wise MSE across channels
-            err = torch.mean((recon - x) ** 2, dim=1).squeeze(0).cpu().numpy()
+            p_hwc = patch_t.permute(1, 2, 0).cpu().numpy()
+            r_hwc = recon.squeeze(0).permute(1, 2, 0).cpu().numpy()
+            _, err = compute_pixelwise_mse_numpy(p_hwc, r_hwc, gaussian_sigma=0.8)
             target = mask_t.numpy()
 
             all_scores.append(err.flatten())
@@ -176,7 +180,7 @@ def train_stage2_real(
         model = SNNAutoencoder(in_channels=3, beta=0.85, num_steps=4).to(device)
         onnx_path = "exports/snn_autoencoder_static_T4.onnx"
     else:
-        model = CNNAutoencoder(in_channels=3).to(device)
+        model = CNNAutoencoder(in_channels=3, bottleneck_channels=16).to(device)
         onnx_path = "exports/cnn_autoencoder.onnx"
 
     train_dataset = RealStage2HealthyDataset(train_healthy)
@@ -190,6 +194,8 @@ def train_stage2_real(
 
     best_val_loss = float("inf")
     ckpt_path = f"exports/stage2_{arch}_best.pt"
+    cnn_l1_latent_weight = 1e-4
+
     if os.path.isfile(ckpt_path):
         try:
             model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
@@ -203,8 +209,13 @@ def train_stage2_real(
         for noisy, clean in train_loader:
             noisy, clean = noisy.to(device), clean.to(device)
             optimizer.zero_grad()
-            recon = model(noisy)
-            loss = mse_fn(recon, clean)
+            if arch == "cnn":
+                latent = model.encode(noisy)
+                recon = model.decode(latent)
+                loss = mse_fn(recon, clean) + cnn_l1_latent_weight * torch.mean(torch.abs(latent))
+            else:
+                recon = model(noisy)
+                loss = mse_fn(recon, clean)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -217,8 +228,14 @@ def train_stage2_real(
         with torch.no_grad():
             for noisy_v, clean_v in val_loader:
                 noisy_v, clean_v = noisy_v.to(device), clean_v.to(device)
-                recon_v = model(noisy_v)
-                val_running_loss += mse_fn(recon_v, clean_v).item()
+                if arch == "cnn":
+                    latent_v = model.encode(noisy_v)
+                    recon_v = model.decode(latent_v)
+                    val_step_loss = mse_fn(recon_v, clean_v) + cnn_l1_latent_weight * torch.mean(torch.abs(latent_v))
+                else:
+                    recon_v = model(noisy_v)
+                    val_step_loss = mse_fn(recon_v, clean_v)
+                val_running_loss += val_step_loss.item()
         avg_val_loss = val_running_loss / max(1, len(val_loader))
 
         if epoch == 1 or epoch % max(1, epochs // 2) == 0 or epoch == epochs:
@@ -233,7 +250,7 @@ def train_stage2_real(
     print(f"[+] Stage 2 ({arch.upper()}) Ground-Truth Crack Pixel AUROC: {final_auroc:.4f}")
 
     # Clean export on CPU
-    export_model = SNNAutoencoder(in_channels=3, beta=0.85, num_steps=4).to("cpu") if arch == "snn" else CNNAutoencoder(in_channels=3).to("cpu")
+    export_model = SNNAutoencoder(in_channels=3, beta=0.85, num_steps=4).to("cpu") if arch == "snn" else CNNAutoencoder(in_channels=3, bottleneck_channels=16).to("cpu")
     export_model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=True))
     export_model.eval()
     for p in export_model.parameters():

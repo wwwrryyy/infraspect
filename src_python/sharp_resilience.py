@@ -12,8 +12,11 @@ import sqlite3
 import os
 import time
 import json
+import logging
 import threading
 from typing import Callable, Optional
+
+logger = logging.getLogger("infraspect.sharp_resilience")
 
 
 class SHARPOfflineResilienceManager:
@@ -186,9 +189,12 @@ class SHARPOfflineResilienceManager:
     def _network_loop(self):
         while self.auto_sync_running:
             time.sleep(3.0)
-            pending = self.get_pending_sync_count()
-            if pending > 0 and self.is_connected:
-                self._synchronize_logs()
+            try:
+                pending = self.get_pending_sync_count()
+                if pending > 0 and self.is_connected:
+                    self._synchronize_logs()
+            except (sqlite3.OperationalError, sqlite3.DatabaseError) as err:
+                logger.debug("Database unavailable or busy during background sync check: %s", err)
 
     def _synchronize_logs(self):
         """Synchronizes local offline logs via pluggable sync callback stub."""

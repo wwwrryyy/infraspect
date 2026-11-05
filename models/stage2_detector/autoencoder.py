@@ -3,7 +3,7 @@ autoencoder.py
 ==============
 Stage 2 Negative-Only Anomaly Detector Architectures:
 1. SNNAutoencoder: Spiking Convolutional Autoencoder with LIF dynamics unrolled over T=4 steps.
-2. CNNAutoencoder: Continuous Single-Step (T=1) Convolutional Autoencoder with SiLU.
+2. CNNAutoencoder: Continuous Single-Step (T=1) Convolutional Autoencoder with sparse 16-channel bottleneck and ReLU.
 3. ONNXExportableSNN: Export wrapper for deterministic ONNX tracing.
 """
 
@@ -96,39 +96,51 @@ class SNNAutoencoder(nn.Module):
 
 
 class CNNAutoencoder(nn.Module):
-    """Continuous Convolutional Autoencoder for high-FPS edge anomaly detection (T=1)."""
+    """Continuous Convolutional Autoencoder for high-FPS edge anomaly detection (T=1).
 
-    def __init__(self, in_channels: int = 3):
+    Uses a sparse channel bottleneck (16 channels) and ReLU activations to enforce
+    tight anomaly contrast on civil infrastructure defects (cracks, spalls).
+    """
+
+    def __init__(self, in_channels: int = 3, bottleneck_channels: int = 16):
         super().__init__()
         self.in_channels = in_channels
+        self.bottleneck_channels = bottleneck_channels
 
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(16),
-            nn.SiLU(inplace=True),
+            nn.ReLU(inplace=True),
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(32),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.SiLU(inplace=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, bottleneck_channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(bottleneck_channels),
+            nn.ReLU(inplace=True),
         )
 
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(bottleneck_channels, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(32),
-            nn.SiLU(inplace=True),
+            nn.ReLU(inplace=True),
             nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(16),
-            nn.SiLU(inplace=True),
+            nn.ReLU(inplace=True),
             nn.Conv2d(16, in_channels, kernel_size=3, stride=1, padding=1),
             nn.Sigmoid(),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Extracts compressed 16-channel bottleneck latent representation."""
         assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Spatial dimensions must be divisible by 4"
-        latent = self.encoder(x)
+        return self.encoder(x)
+
+    def decode(self, latent: torch.Tensor) -> torch.Tensor:
+        """Decodes latent features back to original surface RGB space."""
         return self.decoder(latent)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.decode(self.encode(x))
 
 
 class ONNXExportableSNN(nn.Module):
