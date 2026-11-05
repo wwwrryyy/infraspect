@@ -3,9 +3,10 @@ train.py
 ========
 Training script for Stage 3 Defect Classifier (SNN and CNN backbones).
 
-Taxonomy: CODEBRIM 6 classes (multi-label).
-Loss: BCEWithLogitsLoss.
-Calibration: Post-hoc temperature scaling on validation logits.
+Taxonomy: CODEBRIM 6 classes. Samples carry multi-hot label vectors; the dominant class is used
+as a single-label target so training matches the Softmax inference in deploy_inference.py
+and train_real_inspection.py.
+Loss: CrossEntropyLoss.
 """
 
 import os
@@ -18,17 +19,6 @@ from torch.utils.data import DataLoader
 
 from models.stage3_classifier.model import SpikingMobileNetV3Classifier, CNNMobileNetV3Classifier
 from data.datasets import Stage3DefectDataset, DEFECT_CLASSES
-
-
-class TemperatureScaler(nn.Module):
-    """Post-hoc calibration: scales logits by 1/T to calibrate confidence probabilities."""
-
-    def __init__(self):
-        super().__init__()
-        self.temperature = nn.Parameter(torch.ones(1) * 1.2)
-
-    def forward(self, logits: torch.Tensor) -> torch.Tensor:
-        return logits / self.temperature
 
 
 def train(args):
@@ -57,7 +47,7 @@ def train(args):
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     print(f"[+] Training Stage 3 {args.arch.upper()} for {args.epochs} epochs ({len(dataset)} samples)")
@@ -71,11 +61,11 @@ def train(args):
         running_loss = 0.0
         for crops, labels in loader:
             crops = crops.to(device)
-            labels = labels.to(device)
+            targets = labels.argmax(dim=1).to(device)
 
             optimizer.zero_grad()
             logits = model(crops)
-            loss = criterion(logits, labels)
+            loss = criterion(logits, targets)
             loss.backward()
             optimizer.step()
 
@@ -83,7 +73,7 @@ def train(args):
 
         avg_loss = running_loss / max(1, len(loader))
         if epoch % max(1, args.epochs // 5) == 0 or epoch == args.epochs:
-            print(f"    Epoch [{epoch}/{args.epochs}] Multi-Label BCE Loss: {avg_loss:.6f}")
+            print(f"    Epoch [{epoch}/{args.epochs}] Cross-Entropy Loss: {avg_loss:.6f}")
 
         if avg_loss < best_loss:
             best_loss = avg_loss

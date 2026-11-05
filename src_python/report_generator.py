@@ -12,6 +12,7 @@ for civil engineering authorities.
 import os
 import sys
 import json
+import html
 import math
 import sqlite3
 import argparse
@@ -345,7 +346,7 @@ class CivilInspectionReport:
         for i, (cat, count) in enumerate(sorted(defect_counts.items(), key=lambda x: -x[1])):
             width_px = int((count / max_val) * 200)
             color = palette[i % len(palette)]
-            title = cat.capitalize()
+            title = html.escape(cat.capitalize())
 
             bars.append(f"""
             <g>
@@ -366,8 +367,9 @@ class CivilInspectionReport:
         bg = state["bg_color"]
 
         if len(bbox) >= 4:
-            # Normalize to 48x48 viewport assuming 128x128 standard patch coordinates
-            scale = 48.0 / 128.0
+            # Normalize to 48x48 viewport; frames larger than the 128px model grid scale to fit
+            extent = max(128.0, bbox[0] + bbox[2], bbox[1] + bbox[3])
+            scale = 48.0 / extent
             bx = max(2.0, min(42.0, bbox[0] * scale))
             by = max(2.0, min(42.0, bbox[1] * scale))
             bw = max(6.0, min(44.0 - bx, bbox[2] * scale))
@@ -415,15 +417,15 @@ class CivilInspectionReport:
                 roi_svg = self._render_roi_svg(item["bbox"], item["cs_key"])
 
                 rows_html.append(f"""
-                <tr class="log-row cs-{item['cs_key'].lower()}">
+                <tr class="log-row cs-{html.escape(item['cs_key'].lower())}">
                     <td class="font-mono">#{item['id']}</td>
-                    <td class="text-muted">{item['formatted_time']}</td>
-                    <td><strong style="text-transform:capitalize;">{item['defect_class']}</strong></td>
+                    <td class="text-muted">{html.escape(str(item['formatted_time']))}</td>
+                    <td><strong style="text-transform:capitalize;">{html.escape(item['defect_class'])}</strong></td>
                     <td>
                         <span class="cs-badge" style="background:{cs_info['bg_color']};color:{cs_info['color']};border-color:{cs_info['badge_border']};">
-                            {item['cs_key']}
+                            {html.escape(item['cs_key'])}
                         </span>
-                        <span style="font-size:12px;color:#475569;margin-left:4px;">{cs_info['title'].split('(')[1].replace(')', '') if '(' in cs_info['title'] else cs_info['title']}</span>
+                        <span style="font-size:12px;color:#475569;margin-left:4px;">{html.escape(cs_info['title'].split('(')[1].replace(')', '') if '(' in cs_info['title'] else cs_info['title'])}</span>
                     </td>
                     <td class="text-right font-mono font-bold" style="color:{cs_info['color']};">
                         {item['est_width_mm']:.2f} mm
@@ -431,9 +433,9 @@ class CivilInspectionReport:
                     <td class="text-right font-mono">{item['confidence']*100:.1f}%</td>
                     <td style="text-align:center;">
                         {roi_svg}
-                        <div class="font-mono text-muted" style="font-size:10px;margin-top:2px;">{bbox_str}</div>
+                        <div class="font-mono text-muted" style="font-size:10px;margin-top:2px;">{html.escape(bbox_str)}</div>
                     </td>
-                    <td style="font-size:12px;color:#334155;">{item['action_guidance']}</td>
+                    <td style="font-size:12px;color:#334155;">{html.escape(item['action_guidance'])}</td>
                 </tr>
                 """)
             table_body = "\n".join(rows_html)
@@ -463,7 +465,7 @@ class CivilInspectionReport:
 
         notes_section = f"""
         <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:12px 18px;border-radius:4px;margin-bottom:20px;font-size:13px;color:#1e3a8a;">
-            <strong>ENGINEERING FIELD NOTES:</strong> {self.notes}
+            <strong>ENGINEERING FIELD NOTES:</strong> {html.escape(self.notes)}
         </div>
         """ if self.notes else ""
 
@@ -474,7 +476,7 @@ class CivilInspectionReport:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Infraspect: AASHTO Civil Infrastructure Inspection Report - {self.asset_id}</title>
+    <title>Infraspect: AASHTO Civil Infrastructure Inspection Report - {html.escape(self.asset_id)}</title>
     <style>
         :root {{
             --primary: #1e40af;
@@ -705,11 +707,11 @@ class CivilInspectionReport:
             <div>
                 <span class="header-badge">AASHTO MBEI 1130 COMPLIANT</span>
                 <h1 style="margin-top:10px;font-size:26px;">Civil Infrastructure Defect Inspection Report</h1>
-                <p style="margin-top:4px;">Asset: <strong>{self.asset_id}</strong> &bull; Standard: AASHTO Manual for Bridge Element Inspection Section 1130</p>
+                <p style="margin-top:4px;">Asset: <strong>{html.escape(self.asset_id)}</strong> &bull; Standard: AASHTO Manual for Bridge Element Inspection Section 1130</p>
                 <div class="header-meta">
-                    <div><strong>Survey Platform:</strong> {self.inspector}</div>
+                    <div><strong>Survey Platform:</strong> {html.escape(self.inspector)}</div>
                     <div><strong>Generated:</strong> {generated_date}</div>
-                    <div><strong>Telemetry DB:</strong> {os.path.basename(self.db_path)}</div>
+                    <div><strong>Telemetry DB:</strong> {html.escape(os.path.basename(self.db_path))}</div>
                 </div>
             </div>
             <div style="text-align:right;">
@@ -814,7 +816,7 @@ class CivilInspectionReport:
         <!-- Engineering Compliance Footer -->
         <footer style="text-align:center;font-size:12px;color:#94a3b8;padding:24px 0;">
             <p><strong>Infraspect Autonomous Structural Health Monitoring (SHM) Engine</strong></p>
-            <p>Compliance: AASHTO MBEI 1130 &bull; API 570 &bull; ASME B31.3 &bull; Generated from edge telemetry database: <code>{self.db_path}</code></p>
+            <p>Compliance: AASHTO MBEI 1130 &bull; API 570 &bull; ASME B31.3 &bull; Generated from edge telemetry database: <code>{html.escape(self.db_path)}</code></p>
         </footer>
 
     </div>

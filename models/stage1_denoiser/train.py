@@ -97,7 +97,7 @@ def train(args):
 
     best_loss = float("inf")
     os.makedirs(args.output_dir, exist_ok=True)
-    ckpt_name = f"sunet_denoiser_best.pt" if args.arch.lower() == "snn" else f"cnn_denoiser_best.pt"
+    ckpt_name = f"{args.arch.lower()}_denoiser_best.pt"
     ckpt_path = os.path.join(args.output_dir, ckpt_name)
 
     for epoch in range(1, args.epochs + 1):

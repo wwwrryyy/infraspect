@@ -159,8 +159,16 @@ class TacticalDecisionLogic:
         self,
         mse_heatmap: np.ndarray,
         gsd_mm_per_px: float = None,
+        scale_xy: tuple[float, float] = (1.0, 1.0),
     ) -> tuple[list[dict], np.ndarray]:
-        """Processes anomaly heatmap and returns civil defect alerts."""
+        """Processes anomaly heatmap and returns civil defect alerts.
+
+        Args:
+            gsd_mm_per_px: Ground sampling distance of the *source* camera frame.
+            scale_xy: (scale_x, scale_y) source-pixels per heatmap-pixel. Non-uniform
+                values occur when a non-square frame is resized to the square model input;
+                crack width is then scaled along the direction perpendicular to the crack.
+        """
         if mse_heatmap is None or mse_heatmap.size == 0:
             return [], None
 
@@ -200,10 +208,19 @@ class TacticalDecisionLogic:
             x, y, w, h = box
             mask_roi = cleaned_mask[y : y + h, x : x + w]
 
-            # Measure crack width in pixels via distance transform
-            dist = cv2.distanceTransform(mask_roi, cv2.DIST_L2, 3)
+            # Measure crack width in pixels via distance transform. Zero-pad the ROI so blobs that
+            # fill their bbox are measured against the outside (an all-255 ROI yields ~65534).
+            padded_roi = cv2.copyMakeBorder(mask_roi, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+            dist = cv2.distanceTransform(padded_roi, cv2.DIST_L2, 3)
             max_dist = float(np.max(dist)) if dist.size > 0 and np.max(dist) > 0 else 0.5
             est_width_px = 2.0 * max_dist
+
+            # Crack runs along the bbox diagonal; its width is measured perpendicular to it.
+            # A unit perpendicular vector (-sin t, cos t) maps to source pixels with length
+            # hypot(scale_x * sin t, scale_y * cos t).
+            theta = np.arctan2(h, w)
+            perp_scale = float(np.hypot(scale_xy[0] * np.sin(theta), scale_xy[1] * np.cos(theta)))
+            est_width_px *= perp_scale
 
             severity_info = self.evaluate_advisory_severity(
                 bbox=box,

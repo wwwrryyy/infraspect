@@ -13,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 from models.stage2_detector.autoencoder import SNNAutoencoder, CNNAutoencoder, ONNXExportableSNN
 from data.datasets import Stage2HealthyDataset, generate_concrete_patch, inject_synthetic_defect
@@ -87,19 +87,41 @@ def train_and_export(args):
         model = CNNAutoencoder(in_channels=args.in_channels).to(device)
         default_onnx = "exports/cnn_autoencoder.onnx"
 
-    dataset = Stage2HealthyDataset(
+    full_dataset = Stage2HealthyDataset(
         image_dir=args.data_dir,
         num_synthetic=args.num_synthetic,
         height=args.height,
         width=args.width,
         in_channels=args.in_channels,
     )
+    # Hold out 20% of healthy samples to select checkpoints on validation (not training) loss
+    n_val = max(1, len(full_dataset) // 5) if len(full_dataset) > 1 else 0
+    if n_val:
+        dataset, val_dataset = random_split(
+            full_dataset,
+            [len(full_dataset) - n_val, n_val],
+            generator=torch.Generator().manual_seed(42),
+        )
+    else:
+        dataset = val_dataset = full_dataset
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     mse_fn = nn.MSELoss()
+    cnn_l1_latent_weight = 1e-4
 
-    print(f"[+] Training Stage 2 {args.arch.upper()} on NEGATIVE-ONLY healthy baselines ({len(dataset)} samples)")
+    def reconstruction_loss(noisy, clean):
+        if args.arch.lower() == "cnn":
+            latent = model.encode(noisy)
+            recon = model.decode(latent)
+            sparsity = cnn_l1_latent_weight * torch.mean(torch.abs(latent))
+        else:
+            recon = model(noisy)
+            sparsity = 0.0
+        return mse_fn(recon, clean) + 0.5 * ssim_loss(recon, clean) + sparsity
+
+    print(f"[+] Training Stage 2 {args.arch.upper()} on NEGATIVE-ONLY healthy baselines ({len(dataset)} train / {len(val_dataset)} val samples)")
 
     best_loss = float("inf")
     os.makedirs(args.output_dir, exist_ok=True)
@@ -121,19 +143,26 @@ def train_and_export(args):
             clean = clean.to(device)
 
             optimizer.zero_grad()
-            recon = model(noisy)
-            loss = mse_fn(recon, clean) + 0.5 * ssim_loss(recon, clean)
+            loss = reconstruction_loss(noisy, clean)
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
 
         avg_loss = running_loss / max(1, len(loader))
-        if epoch % max(1, args.epochs // 5) == 0 or epoch == args.epochs:
-            print(f"    Epoch [{epoch}/{args.epochs}] Reconstruction Loss: {avg_loss:.6f}")
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+        model.eval()
+        val_running = 0.0
+        with torch.no_grad():
+            for noisy_v, clean_v in val_loader:
+                val_running += reconstruction_loss(noisy_v.to(device), clean_v.to(device)).item()
+        avg_val_loss = val_running / max(1, len(val_loader))
+
+        if epoch % max(1, args.epochs // 5) == 0 or epoch == args.epochs:
+            print(f"    Epoch [{epoch}/{args.epochs}] Train Loss: {avg_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
+
+        if avg_val_loss < best_loss:
+            best_loss = avg_val_loss
             torch.save(model.state_dict(), ckpt_path)
 
     # Evaluate AUROC on synthetic defects

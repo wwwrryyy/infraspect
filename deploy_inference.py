@@ -149,14 +149,13 @@ class PipelineRunner:
 
         scale_x = w_orig / float(target_w) if (h_orig, w_orig) != (target_h, target_w) else 1.0
         scale_y = h_orig / float(target_h) if (h_orig, w_orig) != (target_h, target_w) else 1.0
-        scale_factor = float(np.hypot(scale_x, scale_y) / np.sqrt(2.0)) if (h_orig, w_orig) != (target_h, target_w) else 1.0
 
-        # Adjust effective GSD for downscaled inference:
-        # A 1-px crack in 128x128 covers `scale_factor` original pixels in the source camera frame.
-        effective_gsd = (self.gsd_mm_per_px * scale_factor) if self.gsd_mm_per_px is not None else None
-
-        # Decision Logic: NMS, thin-crack filtering
-        defects, _ = self.decision_logic.detect_defects(mse_heatmap, gsd_mm_per_px=effective_gsd)
+        # Decision Logic: NMS, thin-crack filtering. Crack widths are scaled back to source-frame
+        # pixels (orientation-aware for non-square frames) and converted with the native camera GSD,
+        # so physical width and AASHTO state are invariant to input resolution and aspect ratio.
+        defects, _ = self.decision_logic.detect_defects(
+            mse_heatmap, gsd_mm_per_px=self.gsd_mm_per_px, scale_xy=(scale_x, scale_y)
+        )
         t4 = time.perf_counter()
 
         # Stage 3: Classifier on aspect-padded 64x64 crops
@@ -201,8 +200,6 @@ class PipelineRunner:
                     int(round(bw * scale_x)),
                     int(round(bh * scale_y)),
                 ]
-                if "est_width_px" in d:
-                    d["est_width_px"] = float(round(d["est_width_px"] * scale_factor, 2))
             visual_heatmap = cv2.resize(visual_heatmap, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
 
         t_end = time.perf_counter()
@@ -269,7 +266,7 @@ def run_benchmark(args):
             for d in defects:
                 d["timestamp"] = time.time()
                 d["pose"] = {"frame_idx": idx, "x": idx * 0.05, "y": 0.0, "z": 1.5}
-                resilience_mgr.log_inspection_offline(d)
+            resilience_mgr.log_inspections_batch(defects)
 
         # Compute summary
         mean_s1 = float(np.mean(s1_times))

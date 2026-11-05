@@ -82,8 +82,24 @@ class LiveInspectionHUD:
     def toggle_arch(self):
         new_arch = "snn" if self.arch == "cnn" else "cnn"
         print(f"[*] Switching Pipeline Backbone: {self.arch.upper()} -> {new_arch.upper()} ...")
+        # The C++ engine owns the live stream; release it before the runner is replaced
+        # and re-attach the stream to the new runner's engine.
+        if self.use_cpp_stream and self.runner.cpp_engine is not None:
+            self.runner.cpp_engine.stop_stream()
         self.arch = new_arch
         self.runner = PipelineRunner(arch=self.arch, exports_dir=self.exports_dir, gsd_mm_per_px=self.gsd_mm_per_px)
+        if self.use_cpp_stream and self.runner.cpp_engine is not None:
+            self.runner.cpp_engine.start_stream(self.source)
+
+    def close_streams(self):
+        """Releases active video streams and stops resilience background sync."""
+        if self.use_cpp_stream and self.runner.cpp_engine is not None:
+            self.runner.cpp_engine.stop_stream()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        if hasattr(self, "resilience_mgr") and self.resilience_mgr is not None:
+            self.resilience_mgr.stop()
 
     def get_frame(self) -> np.ndarray:
         if self.use_cpp_stream and self.runner.cpp_engine is not None:
@@ -302,10 +318,7 @@ class LiveInspectionHUD:
 
         if not headless:
             cv2.destroyAllWindows()
-        if self.use_cpp_stream and self.runner.cpp_engine is not None:
-            self.runner.cpp_engine.stop_stream()
-        if self.cap is not None:
-            self.cap.release()
+        self.close_streams()
         print("[+] HUD closed cleanly.")
 
 
@@ -347,9 +360,15 @@ def run_dearpygui_dashboard(args):
         hud.toggle_arch()
         dpg.set_value("lbl_arch", f"Backbone: {hud.arch.upper()}")
 
+    latest_overlay = {"bgr": None}
+
     def on_snapshot():
         snap_name = f"snapshot_frame_{hud.frame_idx}_{hud.arch}.png"
-        print(f"[+] Snapshot requested: {snap_name}")
+        if latest_overlay["bgr"] is None:
+            print("[-] Snapshot skipped: no frame rendered yet.")
+            return
+        cv2.imwrite(snap_name, latest_overlay["bgr"])
+        print(f"[+] Snapshot saved: {snap_name}")
 
     with dpg.window(label="Control Panel & Telemetry", width=360, height=720, pos=(900, 10), no_close=True):
         dpg.add_text("INFRASPECT CONTROL HUD", color=(100, 200, 255))
@@ -433,7 +452,7 @@ def run_dearpygui_dashboard(args):
                     dpg.add_text(width_str)
 
         overlay_bgr = hud.draw_defect_overlays(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR), defects)
-
+        latest_overlay["bgr"] = overlay_bgr
         dpg.set_value("tex_raw", to_rgba(overlay_bgr))
         dpg.set_value("tex_restored", to_rgba(cv2.cvtColor(restored_hwc, cv2.COLOR_RGB2BGR)))
         dpg.set_value("tex_heatmap", to_rgba(vis_map))
@@ -444,6 +463,7 @@ def run_dearpygui_dashboard(args):
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
+    hud.close_streams()
     print("[+] DearPyGui closed cleanly.")
 
 

@@ -185,3 +185,42 @@ def test_batch_inspections_logging(tmp_path):
     assert len(recent) == 10
     assert recent[0]["pose"]["frame_idx"] == 9
 
+
+
+def test_anisotropic_scale_crack_width_is_orientation_aware():
+    logic = TacticalDecisionLogic(mse_threshold=0.06, min_crack_length=10)
+
+    horiz = np.zeros((128, 128), dtype=np.float32)
+    cv2.line(horiz, (10, 64), (110, 64), 0.5, thickness=3)
+    vert = np.zeros((128, 128), dtype=np.float32)
+    cv2.line(vert, (64, 10), (64, 110), 0.5, thickness=3)
+
+    # Wide source frame: x is stretched 4x relative to y during the square resize
+    h_def, _ = logic.detect_defects(horiz, gsd_mm_per_px=0.1, scale_xy=(4.0, 1.0))
+    v_def, _ = logic.detect_defects(vert, gsd_mm_per_px=0.1, scale_xy=(4.0, 1.0))
+    h_iso, _ = logic.detect_defects(horiz, gsd_mm_per_px=0.1)
+
+    # Horizontal crack width is measured along y (unscaled); vertical along x (4x)
+    assert abs(h_def[0]["est_width_mm"] - h_iso[0]["est_width_mm"]) < 0.05
+    assert v_def[0]["est_width_mm"] > 3.0 * h_def[0]["est_width_mm"]
+
+
+def test_scoped_sync_preserves_concurrent_inserts(tmp_path):
+    db_file = tmp_path / "sync_test.db"
+    holder = {}
+
+    def callback(rows):
+        # Simulate a record arriving from the main thread while the sync is in flight
+        holder["mgr"].log_inspection_offline({"id": 99, "defect_class": "crack", "bbox": [1, 2, 3, 4]})
+        return True
+
+    mgr = SHARPOfflineResilienceManager(db_path=str(db_file), sync_callback=callback)
+    holder["mgr"] = mgr
+    mgr.stop()
+
+    mgr.log_inspection_offline({"id": 1, "defect_class": "crack", "bbox": [1, 2, 3, 4]})
+    mgr._synchronize_logs()
+
+    # The late insert must remain pending for the next cycle
+    assert mgr.get_pending_sync_count() == 1
+    assert mgr.get_recent_inspections(limit=1)[0]["synced"] is False

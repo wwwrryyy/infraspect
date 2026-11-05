@@ -197,13 +197,22 @@ class SHARPOfflineResilienceManager:
         return logs
 
     def _start_network_monitor(self):
+        self._stop_event = threading.Event()
         self.auto_sync_running = True
         self.monitor_thread = threading.Thread(target=self._network_loop, daemon=True)
         self.monitor_thread.start()
 
+    def stop(self):
+        """Stops the background sync monitor thread."""
+        self.auto_sync_running = False
+        self._stop_event.set()
+        if self.monitor_thread.is_alive() and self.monitor_thread is not threading.current_thread():
+            self.monitor_thread.join(timeout=5.0)
+
     def _network_loop(self):
         while self.auto_sync_running:
-            time.sleep(3.0)
+            if self._stop_event.wait(3.0) or not self.auto_sync_running:
+                break
             try:
                 pending = self.get_pending_sync_count()
                 if pending > 0 and self.is_connected:
@@ -211,25 +220,36 @@ class SHARPOfflineResilienceManager:
             except (sqlite3.OperationalError, sqlite3.DatabaseError) as err:
                 logger.debug("Database unavailable or busy during background sync check: %s", err)
 
-    def _synchronize_logs(self):
-        """Synchronizes local offline logs via pluggable sync callback stub."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        cursor = conn.cursor()
+    SYNC_BATCH_SIZE = 500
 
-        # If a custom sync callback is attached, invoke it with un-synced items
-        if self.sync_callback:
-            cursor.execute("SELECT * FROM inspection_logs WHERE synced = 0")
+    def _synchronize_logs(self):
+        """Synchronizes local offline logs via pluggable sync callback stub.
+
+        Only the rows read at the start of the sync are marked as synced, so records
+        inserted concurrently while the callback runs are picked up by the next cycle.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM inspection_logs WHERE synced = 0 ORDER BY id LIMIT ?",
+                (self.SYNC_BATCH_SIZE,),
+            )
             un_synced = cursor.fetchall()
-            if un_synced:
-                success = self.sync_callback(un_synced)
-                if not success:
-                    conn.close()
+            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM threat_logs WHERE synced = 0")
+            max_threat_id = cursor.fetchone()[0]
+
+            # If a custom sync callback is attached, invoke it with un-synced items
+            if self.sync_callback and un_synced:
+                if not self.sync_callback(un_synced):
                     return
 
-        cursor.execute("UPDATE inspection_logs SET synced = 1 WHERE synced = 0")
-        cursor.execute("UPDATE threat_logs SET synced = 1 WHERE synced = 0")
-        conn.commit()
-        conn.close()
+            ids = [row[0] for row in un_synced]
+            cursor.executemany("UPDATE inspection_logs SET synced = 1 WHERE id = ?", [(i,) for i in ids])
+            cursor.execute("UPDATE threat_logs SET synced = 1 WHERE synced = 0 AND id <= ?", (max_threat_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
     def toggle_simulated_connection(self) -> bool:
         self.is_connected = not self.is_connected

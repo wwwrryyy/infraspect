@@ -195,3 +195,22 @@ def test_cli_execution_with_aliases(sample_inspection_db, tmp_path):
     assert ret_pdf == 0
     assert pdf_file.is_file()
     assert pdf_file.read_bytes().startswith(b"%PDF-1.4")
+
+
+def test_html_xss_escaping(sample_inspection_db, tmp_path):
+    payload = "<script>alert(1)</script>"
+    report = CivilInspectionReport(
+        db_path=sample_inspection_db,
+        asset_id=payload,
+        inspector='"><img src=x onerror=alert(2)>',
+        notes=payload,
+    )
+    content = report.generate_html()
+    assert "<script>alert(1)</script>" not in content
+    assert "<img src=x" not in content
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in content
+
+    # JSON export keeps the raw value (escaping is a presentation concern)
+    json_out = tmp_path / "raw.json"
+    report.export_json(str(json_out))
+    assert json.loads(json_out.read_text())["asset_id"] == payload

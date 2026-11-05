@@ -7,6 +7,7 @@ Unit tests for Phase P4 model architectures:
 - Stage 3 SpikingMobileNetV3Classifier & CNNMobileNetV3Classifier (64x64 crops, 6 logits).
 """
 
+import os
 import torch
 import pytest
 import numpy as np
@@ -85,3 +86,23 @@ def test_model_training_step():
 
     assert not torch.isnan(loss)
     assert loss.item() > 0.0
+
+
+def test_stage2_and_stage3_standalone_trainers_smoke(tmp_path):
+    from types import SimpleNamespace
+    from models.stage2_detector.train_snn_autoencoder import train_and_export
+    from models.stage3_classifier.train import train as train_stage3
+
+    s2_args = SimpleNamespace(
+        arch="cnn", checkpoint=None, data_dir=None, output_dir=str(tmp_path),
+        output=str(tmp_path / "s2.onnx"), epochs=1, batch_size=4, lr=1e-3,
+        in_channels=3, num_steps=4, beta=0.85, height=32, width=32, num_synthetic=10,
+    )
+    ckpt, onnx_path, auroc = train_and_export(s2_args)
+    assert os.path.isfile(ckpt) and os.path.isfile(onnx_path)
+
+    s3_args = SimpleNamespace(
+        arch="cnn", data_dir=None, output_dir=str(tmp_path), epochs=1, batch_size=4,
+        lr=1e-3, in_channels=3, num_steps=4, beta=0.85, num_synthetic=8,
+    )
+    assert os.path.isfile(train_stage3(s3_args))

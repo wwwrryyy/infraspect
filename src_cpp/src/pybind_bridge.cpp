@@ -75,10 +75,6 @@ private:
     AnomalyCalculus anomaly_calc_;
     SHARPFaultTolerance sharp_;
 
-    cv::Mat current_raw_frame_rgb_;
-    cv::Mat current_mse_heatmap_;
-    cv::Mat current_visual_heatmap_;
-
 public:
     BattlefieldEngine() : ingestor_(30), anomaly_calc_(0.06f, 0.8f) {}
 
@@ -98,23 +94,30 @@ public:
 
     /**
      * @brief Ingests next video frame and converts native BGR to RGB.
+     * Every returned array owns a freshly allocated buffer, so arrays from earlier
+     * frames are never overwritten by later calls.
      * @return (has_frame: bool, raw_frame_rgb_zerocopy: np.ndarray)
      */
     py::tuple grabFrame() {
         cv::Mat raw_bgr;
-        bool has_frame = ingestor_.getNextFrame(raw_bgr, 20);
+        bool has_frame;
+        {
+            py::gil_scoped_release release;
+            has_frame = ingestor_.getNextFrame(raw_bgr, 20);
+        }
         if (!has_frame || raw_bgr.empty()) {
             return py::make_tuple(false, py::none());
         }
 
         // Convert camera BGR to RGB for standard model ingestion
+        cv::Mat frame_rgb;
         if (raw_bgr.channels() == 3) {
-            cv::cvtColor(raw_bgr, current_raw_frame_rgb_, cv::COLOR_BGR2RGB);
+            cv::cvtColor(raw_bgr, frame_rgb, cv::COLOR_BGR2RGB);
         } else {
-            current_raw_frame_rgb_ = raw_bgr;
+            frame_rgb = raw_bgr;
         }
 
-        py::array_t<uint8_t> rgb_arr = mat_to_numpy_zerocopy_u8(current_raw_frame_rgb_);
+        py::array_t<uint8_t> rgb_arr = mat_to_numpy_zerocopy_u8(frame_rgb);
         return py::make_tuple(true, rgb_arr);
     }
 
@@ -128,15 +131,20 @@ public:
         cv::Mat restored_mat = numpy_float_to_mat(restored_input);
         cv::Mat recon_mat = numpy_float_to_mat(recon_input);
 
-        float mean_mse = anomaly_calc_.computePixelwiseMSE(restored_mat, recon_mat, current_mse_heatmap_);
-        anomaly_calc_.generateVisualHeatmap(current_mse_heatmap_, current_visual_heatmap_, true);
+        cv::Mat mse_heatmap, visual_heatmap;
+        float mean_mse;
+        {
+            py::gil_scoped_release release;
+            mean_mse = anomaly_calc_.computePixelwiseMSE(restored_mat, recon_mat, mse_heatmap);
+            anomaly_calc_.generateVisualHeatmap(mse_heatmap, visual_heatmap, true);
+        }
 
         // Telemetry update to SHARP engine with real measured latency
         float queue_fill = static_cast<float>(ingestor_.getQueueSize()) / static_cast<float>(ingestor_.getQueueCapacity() + 1e-6f);
         sharp_.updateTelemetry(queue_fill, latency_ms, mean_mse);
 
-        py::array_t<float> mse_arr = mat_to_numpy_zerocopy_f32(current_mse_heatmap_);
-        py::array_t<uint8_t> visual_arr = mat_to_numpy_zerocopy_u8(current_visual_heatmap_);
+        py::array_t<float> mse_arr = mat_to_numpy_zerocopy_f32(mse_heatmap);
+        py::array_t<uint8_t> visual_arr = mat_to_numpy_zerocopy_u8(visual_heatmap);
 
         return py::make_tuple(mse_arr, visual_arr, mean_mse);
     }
@@ -146,33 +154,39 @@ public:
      */
     py::tuple processNextFrame(py::array_t<float, py::array::c_style | py::array::forcecast> recon_input) {
         cv::Mat raw;
-        bool has_frame = ingestor_.getNextFrame(raw, 20);
+        bool has_frame;
+        {
+            py::gil_scoped_release release;
+            has_frame = ingestor_.getNextFrame(raw, 20);
+        }
         if (!has_frame) {
             return py::make_tuple(false, py::none(), py::none(), py::none(), 0.0f);
         }
 
+        cv::Mat frame_rgb;
         if (raw.channels() == 3) {
-            cv::cvtColor(raw, current_raw_frame_rgb_, cv::COLOR_BGR2RGB);
+            cv::cvtColor(raw, frame_rgb, cv::COLOR_BGR2RGB);
         } else {
-            current_raw_frame_rgb_ = raw;
+            frame_rgb = raw;
         }
 
         cv::Mat recon_mat;
         if (recon_input.size() > 0) {
             recon_mat = numpy_float_to_mat(recon_input);
         } else {
-            recon_mat = current_raw_frame_rgb_.clone();
+            recon_mat = frame_rgb.clone();
         }
 
-        float mean_mse = anomaly_calc_.computePixelwiseMSE(current_raw_frame_rgb_, recon_mat, current_mse_heatmap_);
-        anomaly_calc_.generateVisualHeatmap(current_mse_heatmap_, current_visual_heatmap_, true);
+        cv::Mat mse_heatmap, visual_heatmap;
+        float mean_mse = anomaly_calc_.computePixelwiseMSE(frame_rgb, recon_mat, mse_heatmap);
+        anomaly_calc_.generateVisualHeatmap(mse_heatmap, visual_heatmap, true);
 
         float queue_fill = static_cast<float>(ingestor_.getQueueSize()) / static_cast<float>(ingestor_.getQueueCapacity() + 1e-6f);
         sharp_.updateTelemetry(queue_fill, 15.0f, mean_mse);
 
-        py::array_t<uint8_t> raw_arr = mat_to_numpy_zerocopy_u8(current_raw_frame_rgb_);
-        py::array_t<float> mse_arr = mat_to_numpy_zerocopy_f32(current_mse_heatmap_);
-        py::array_t<uint8_t> visual_arr = mat_to_numpy_zerocopy_u8(current_visual_heatmap_);
+        py::array_t<uint8_t> raw_arr = mat_to_numpy_zerocopy_u8(frame_rgb);
+        py::array_t<float> mse_arr = mat_to_numpy_zerocopy_f32(mse_heatmap);
+        py::array_t<uint8_t> visual_arr = mat_to_numpy_zerocopy_u8(visual_heatmap);
 
         return py::make_tuple(true, raw_arr, mse_arr, visual_arr, mean_mse);
     }

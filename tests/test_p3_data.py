@@ -134,3 +134,15 @@ def test_stage3_multi_label_dataset():
     assert labels.shape == (len(DEFECT_CLASSES),)
     assert labels.dtype == torch.float32
     assert torch.sum(labels) >= 1.0  # At least one active label
+
+
+def test_legacy_speckle_determinism():
+    from models.stage1_denoiser.corruption import corrupt_image
+
+    img = np.random.default_rng(0).uniform(0.1, 0.9, (32, 32)).astype(np.float32)
+    # Fixed seed must reproduce identical corruption regardless of global np.random state
+    np.random.seed(1)
+    a = corrupt_image(img, rng=np.random.default_rng(42))
+    np.random.seed(2)
+    b = corrupt_image(img, rng=np.random.default_rng(42))
+    assert np.array_equal(a, b)

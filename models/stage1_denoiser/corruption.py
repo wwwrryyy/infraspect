@@ -16,17 +16,25 @@ import cv2
 import numpy as np
 
 
-def apply_rayleigh_speckle(image: np.ndarray, scale: float = 0.3) -> np.ndarray:
+def apply_rayleigh_speckle(
+    image: np.ndarray, scale: float = 0.3, rng: np.random.Generator = None
+) -> np.ndarray:
     """Apply multiplicative Rayleigh-distributed speckle noise."""
-    noise = np.random.rayleigh(scale=scale, size=image.shape).astype(np.float32)
+    if rng is None:
+        rng = np.random.default_rng()
+    noise = rng.rayleigh(scale=scale, size=image.shape).astype(np.float32)
     noise = noise / (scale * np.sqrt(np.pi / 2))
     corrupted = image * noise
     return np.clip(corrupted, 0.0, 1.0).astype(np.float32)
 
 
-def apply_gamma_speckle(image: np.ndarray, num_looks: float = 3.0) -> np.ndarray:
+def apply_gamma_speckle(
+    image: np.ndarray, num_looks: float = 3.0, rng: np.random.Generator = None
+) -> np.ndarray:
     """Apply multiplicative Gamma-distributed speckle noise."""
-    noise = np.random.gamma(
+    if rng is None:
+        rng = np.random.default_rng()
+    noise = rng.gamma(
         shape=num_looks, scale=1.0 / num_looks, size=image.shape
     ).astype(np.float32)
     corrupted = image * noise
@@ -41,15 +49,15 @@ def corrupt_image(image: np.ndarray, rng: np.random.Generator = None) -> np.ndar
     mode = rng.choice(["rayleigh", "gamma", "both"])
     if mode == "rayleigh":
         scale = rng.uniform(0.15, 0.5)
-        return apply_rayleigh_speckle(image, scale=scale)
+        return apply_rayleigh_speckle(image, scale=scale, rng=rng)
     elif mode == "gamma":
         num_looks = rng.uniform(1.0, 5.0)
-        return apply_gamma_speckle(image, num_looks=num_looks)
+        return apply_gamma_speckle(image, num_looks=num_looks, rng=rng)
     else:
         scale = rng.uniform(0.15, 0.35)
         num_looks = rng.uniform(2.0, 5.0)
-        result = apply_rayleigh_speckle(image, scale=scale)
-        result = apply_gamma_speckle(result, num_looks=num_looks)
+        result = apply_rayleigh_speckle(image, scale=scale, rng=rng)
+        result = apply_gamma_speckle(result, num_looks=num_looks, rng=rng)
         return result
 
 

@@ -69,3 +69,29 @@ def test_non_contiguous_array_safety():
     assert mean_val > 0.0
     assert mse_arr.shape == (32, 32)
     assert engine.get_scale_factor() in [1, 2]
+
+
+def test_zero_copy_frame_buffer_isolation():
+    engine = battlefield_core.BattlefieldEngine()
+    zeros = np.zeros((32, 32, 3), dtype=np.float32)
+    ones = np.ones((32, 32, 3), dtype=np.float32)
+
+    mse_1, vis_1, _ = engine.compute_anomaly(zeros, ones, 10.0)
+    mse_1_snapshot = mse_1.copy()
+    vis_1_snapshot = vis_1.copy()
+
+    # A second call with different content must not mutate arrays returned by the first
+    engine.compute_anomaly(zeros, zeros, 10.0)
+
+    assert np.array_equal(mse_1, mse_1_snapshot)
+    assert np.array_equal(vis_1, vis_1_snapshot)
+
+
+def test_ingestor_restart_after_invalid_source():
+    engine = battlefield_core.BattlefieldEngine()
+    # Repeated start after a failed open must not call std::terminate (joinable thread reassign)
+    for _ in range(3):
+        engine.start_stream("/non/existent/path/to/video.mp4")
+        has_frame, _frame = engine.grab_frame()
+        assert not has_frame
+    engine.stop_stream()
