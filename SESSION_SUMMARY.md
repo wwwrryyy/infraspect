@@ -72,19 +72,19 @@ Ran deep training on Apple Silicon GPU (`mps`) across **15,956 real concrete pat
 
 | Metric / Stage | Continuous CNN ($T=1$) | Spiking Neural Network ($T=4$) | Status |
 | :--- | :--- | :--- | :--- |
-| **Stage 1 Optical Restoration Loss** | **$0.0211$** | **$0.0408$** | Real-time despeckling under civil corruptions |
-| **Stage 2 Validation Loss** | **$0.000425$** | **$0.001920$** | Unsupervised nominal concrete baseline |
-| **Stage 2 Ground-Truth Pixel AUROC** | **$0.7104$** | **$0.7772$** | Evaluated on 898 human ground-truth masks |
-| **Stage 3 Defect Accuracy** | **$98.9\%$** | **$87.8\%$** | 6-class CODEBRIM taxonomy on real crops |
-| **Calibrated 99.5th %ile Threshold** | **$0.00132$** | **$0.00707$** | Held-out validation calibration |
-| **End-to-End Latency** | **$4.12\text{ ms}$** | **$14.27\text{ ms}$** | Apple Silicon M5 edge execution |
-| **Sustained Frame Rate** | **$242.5\text{ FPS}$** | **$70.1\text{ FPS}$** | Both exceed PRD requirement ($\ge 10\text{ FPS}$) |
+| **Stage 1 Optical Restoration Loss** | **$0.0211$** | **$0.0251$** | Real-time despeckling under civil corruptions |
+| **Stage 2 Validation Loss** | **$0.000575$** | **$0.001053$** | Unsupervised nominal concrete baseline |
+| **Stage 2 Ground-Truth Pixel AUROC** | **$0.8677$** | **$0.9515$** | Evaluated on real human ground-truth masks |
+| **Stage 3 Defect Accuracy** | **$98.9\%$** | **$95.1\%$** | 6-class CODEBRIM taxonomy on real crops |
+| **Calibrated 99.5th %ile Threshold** | **$0.00274$** | **$0.00279$** | Held-out validation calibration (3,191+ frames) |
+| **End-to-End Latency** | **$4.18\text{ ms}$** | **$14.64\text{ ms}$** | Apple Silicon M5 edge execution |
+| **Sustained Frame Rate** | **$239.5\text{ FPS}$** | **$68.3\text{ FPS}$** | Both exceed PRD requirement ($\ge 10\text{ FPS}$) |
 
 ---
 
-## 4. How to Resume Tomorrow
+## 4. Production Ready & Verified
 
-When you return, all virtual environments and models are ready to run immediately:
+All virtual environments, unit tests, and dual 20-epoch models are verified and production-ready:
 
 ```bash
 # 1. Activate environment
@@ -93,9 +93,9 @@ source .venv/bin/activate
 # 2. Run all unit tests to confirm green status
 pytest tests/
 
-# 3. Launch the live interactive inspection HUD
+# 3. Launch the live interactive inspection HUD (toggle CNN/SNN with [C])
 infraspect-hud --gui cv --arch cnn
 
-# 4. (Optional) Run the 20-epoch training pass on SNN if desired
-infraspect-train --epochs 20 --max-patches 15000 --batch-size 32
+# 4. Run comparative edge benchmark
+infraspect-benchmark --frames 30
 ```

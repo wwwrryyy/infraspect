@@ -74,11 +74,11 @@ The models are trained and calibrated on over **40,000 real civil concrete image
 
 | Model / Stage | CNN Backbone ($T=1$) | SNN Backbone ($T=4$) | Target Benchmark |
 | :--- | :--- | :--- | :--- |
-| **Stage 1 Denoiser Loss** | **$0.0345$** | **$0.0408$** | Continuous restoration under corruptions |
-| **Stage 2 Validation Loss** | **$0.001054$** | **$0.001920$** | Unsupervised nominal concrete baseline |
-| **Stage 2 Ground-Truth Pixel AUROC** | **$0.7104$** | **$0.7772$** | Evaluated on 898 human ground-truth masks |
-| **Stage 3 Defect Accuracy** | **$94.4\%$** | **$87.8\%$** | 6-class CODEBRIM taxonomy on real crops |
-| **Calibrated 99.5th %ile Threshold** | **$0.00457$** | **$0.00707$** | Zero-leakage held-out validation set |
+| **Stage 1 Denoiser Loss** | **$0.0211$** | **$0.0251$** | Continuous restoration under corruptions |
+| **Stage 2 Validation Loss** | **$0.000575$** | **$0.001053$** | Unsupervised nominal concrete baseline |
+| **Stage 2 Ground-Truth Pixel AUROC** | **$0.8677$** | **$0.9515$** | Evaluated on real human ground-truth masks |
+| **Stage 3 Defect Accuracy** | **$98.9\%$** | **$95.1\%$** | 6-class CODEBRIM taxonomy on real crops |
+| **Calibrated 99.5th %ile Threshold** | **$0.00274$** | **$0.00279$** | Zero-leakage held-out validation set |
 
 ---
 
