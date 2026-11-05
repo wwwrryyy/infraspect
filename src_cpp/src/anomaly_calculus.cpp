@@ -40,6 +40,15 @@ float AnomalyCalculus::computePixelwiseMSE(const cv::Mat& raw_frame, const cv::M
             cv::cvtColor(raw_float, raw_float, cv::COLOR_RGBA2RGB);
         } else if (raw_float.channels() == 3 && recon_float.channels() == 4) {
             cv::cvtColor(recon_float, recon_float, cv::COLOR_RGBA2RGB);
+        } else if (raw_float.channels() == 1 && recon_float.channels() == 4) {
+            cv::cvtColor(recon_float, recon_float, cv::COLOR_RGBA2GRAY);
+        } else if (raw_float.channels() == 4 && recon_float.channels() == 1) {
+            cv::cvtColor(raw_float, raw_float, cv::COLOR_RGBA2GRAY);
+        } else {
+            if (raw_float.channels() == 3) cv::cvtColor(raw_float, raw_float, cv::COLOR_RGB2GRAY);
+            else if (raw_float.channels() == 4) cv::cvtColor(raw_float, raw_float, cv::COLOR_RGBA2GRAY);
+            if (recon_float.channels() == 3) cv::cvtColor(recon_float, recon_float, cv::COLOR_RGB2GRAY);
+            else if (recon_float.channels() == 4) cv::cvtColor(recon_float, recon_float, cv::COLOR_RGBA2GRAY);
         }
     }
 

@@ -97,7 +97,8 @@ class SpikingUNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass unrolled statically over num_steps."""
-        assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Input spatial dimensions must be divisible by 4"
+        if not torch.jit.is_tracing():
+            assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Input spatial dimensions must be divisible by 4"
 
         mem_e1 = self.enc1.init_mem()
         mem_e2 = self.enc2.init_mem()
@@ -174,7 +175,8 @@ class CNNUNet(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Input spatial dimensions must be divisible by 4"
+        if not torch.jit.is_tracing():
+            assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Input spatial dimensions must be divisible by 4"
         e1 = self.enc1(x)
         e2 = self.enc2(e1)
         e3 = self.enc3(e2)

@@ -117,3 +117,12 @@ def test_cpp_anomaly_calculus_channel_mismatch_resilience():
     mse_3, vis_3, mean_3 = engine.compute_anomaly(rgba, rgb, 10.0)
     assert mse_3.shape == (32, 32)
     assert np.isclose(mean_3, 0.0, atol=1e-4)
+
+    # 4-channel vs 1-channel and 1-channel vs 4-channel
+    mse_4, vis_4, mean_4 = engine.compute_anomaly(rgba, gray, 10.0)
+    assert mse_4.shape == (32, 32)
+    assert np.isclose(mean_4, 0.0, atol=1e-4)
+
+    mse_5, vis_5, mean_5 = engine.compute_anomaly(gray, rgba, 10.0)
+    assert mse_5.shape == (32, 32)
+    assert np.isclose(mean_5, 0.0, atol=1e-4)

@@ -178,8 +178,12 @@ public:
         }
 
         cv::Mat mse_heatmap, visual_heatmap;
-        float mean_mse = anomaly_calc_.computePixelwiseMSE(frame_rgb, recon_mat, mse_heatmap);
-        anomaly_calc_.generateVisualHeatmap(mse_heatmap, visual_heatmap, true);
+        float mean_mse;
+        {
+            py::gil_scoped_release release;
+            mean_mse = anomaly_calc_.computePixelwiseMSE(frame_rgb, recon_mat, mse_heatmap);
+            anomaly_calc_.generateVisualHeatmap(mse_heatmap, visual_heatmap, true);
+        }
 
         float queue_fill = static_cast<float>(ingestor_.getQueueSize()) / static_cast<float>(ingestor_.getQueueCapacity() + 1e-6f);
         sharp_.updateTelemetry(queue_fill, 15.0f, mean_mse);

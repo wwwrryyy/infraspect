@@ -134,7 +134,7 @@ class CivilInspectionReport:
 
         if os.path.isfile(self.db_path):
             try:
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=10.0)
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -227,7 +227,8 @@ class CivilInspectionReport:
         else:
             health_index = 100.0
 
-        duration_sec = (max(timestamps) - min(timestamps)) if len(timestamps) > 1 else 0.0
+        valid_ts = [t for t in timestamps if t > 0.0]
+        duration_sec = (max(valid_ts) - min(valid_ts)) if len(valid_ts) > 1 else 0.0
 
         # Scanned frames and surface area derivation
         if self.user_frames_scanned is not None:
@@ -289,6 +290,10 @@ class CivilInspectionReport:
             "metrics": self.metrics,
             "inventory": self.inventory,
         }
+
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
@@ -828,6 +833,9 @@ class CivilInspectionReport:
     def export_html(self, output_path: str) -> str:
         """Renders and writes HTML report to specified output file."""
         html_content = self.generate_html()
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         return output_path
@@ -924,13 +932,17 @@ class CivilInspectionReport:
         p1.append(f"BT /F2 9 Tf 0 0 0 rg 380 {table_y - 15} Td (95th Percentile: {ws.get('p95', 0.0):.2f} mm) Tj ET")
         p1.append(f"BT /F1 9 Tf 0.8 0.1 0.1 rg 480 {table_y - 15} Td (Max: {ws.get('max', 0.0):.2f} mm) Tj ET")
 
-        # Engineering Certification Footer
-        p1.append("BT /F2 8 Tf 0.5 0.5 0.5 rg 50 45 Td (Infraspect Civil Inspection Report  |  AASHTO MBEI 1130  |  Page 1 of Inventory) Tj ET")
-        pages_content.append("\n".join(p1))
-
         # --- PAGE 2+: Defect Inventory Table ---
         rows_per_page = 28
-        inv_chunks = [self.inventory[i:i + rows_per_page] for i in range(0, max(1, len(self.inventory)), rows_per_page)]
+        if self.inventory:
+            inv_chunks = [self.inventory[i:i + rows_per_page] for i in range(0, len(self.inventory), rows_per_page)]
+        else:
+            inv_chunks = []
+        total_pdf_pages = len(inv_chunks) + 1
+
+        # Engineering Certification Footer
+        p1.append(f"BT /F2 8 Tf 0.5 0.5 0.5 rg 50 45 Td (Infraspect Civil Inspection Report  |  AASHTO MBEI 1130  |  Page 1 of {total_pdf_pages}) Tj ET")
+        pages_content.append("\n".join(p1))
 
         for p_idx, chunk in enumerate(inv_chunks):
             p = []
@@ -966,7 +978,7 @@ class CivilInspectionReport:
                 p.append(f"BT /F2 7 Tf 0.2 0.2 0.2 rg 495 {y - 12} Td ({_escape_pdf(act_snip)}) Tj ET")
                 y -= 16
 
-            p.append(f"BT /F2 8 Tf 0.5 0.5 0.5 rg 50 45 Td (Infraspect Civil Inspection Report  |  AASHTO MBEI 1130  |  Page {p_idx + 2} of {len(inv_chunks) + 1}) Tj ET")
+            p.append(f"BT /F2 8 Tf 0.5 0.5 0.5 rg 50 45 Td (Infraspect Civil Inspection Report  |  AASHTO MBEI 1130  |  Page {p_idx + 2} of {total_pdf_pages}) Tj ET")
             pages_content.append("\n".join(p))
 
         # Assemble genuine binary PDF 1.4 document
@@ -1011,6 +1023,10 @@ class CivilInspectionReport:
 
         trailer = f"trailer\n<< /Size {total_objs} /Root {cat_id} 0 R >>\nstartxref\n{pos}\n%%EOF\n".encode("latin1")
         pdf_data = header + body + xref + trailer
+
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
 
         with open(output_path, "wb") as f:
             f.write(pdf_data)

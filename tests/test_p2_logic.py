@@ -34,6 +34,21 @@ def test_hairline_crack_survival():
     assert "CS1" in defects[0]["condition_state"]
 
 
+def test_hairline_1px_crack_detection():
+    # 1-pixel wide cracks have cv2.contourArea == 0.0 but length/pixel_count >= 10
+    logic = TacticalDecisionLogic(mse_threshold=0.06, min_crack_length=10)
+    heatmap = np.zeros((128, 128), dtype=np.float32)
+
+    # Draw a 1-pixel wide diagonal hairline crack
+    cv2.line(heatmap, (20, 20), (50, 45), 0.30, thickness=1)
+
+    defects, mask = logic.detect_defects(heatmap, gsd_mm_per_px=0.05)
+    assert len(defects) >= 1
+    assert defects[0]["score"] >= 0.06
+    assert defects[0]["est_width_mm"] is not None
+    assert "CS1" in defects[0]["condition_state"]
+
+
 def test_isolated_speckle_noise_rejection():
     logic = TacticalDecisionLogic(mse_threshold=0.06, min_area=15, min_crack_length=10)
     heatmap = np.zeros((128, 128), dtype=np.float32)

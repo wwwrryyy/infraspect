@@ -214,3 +214,20 @@ def test_html_xss_escaping(sample_inspection_db, tmp_path):
     json_out = tmp_path / "raw.json"
     report.export_json(str(json_out))
     assert json.loads(json_out.read_text())["asset_id"] == payload
+
+
+def test_export_creates_nested_parent_directories(sample_inspection_db, tmp_path):
+    report = CivilInspectionReport(db_path=sample_inspection_db)
+    nested_dir = tmp_path / "deeply" / "nested" / "reports"
+    
+    html_target = str(nested_dir / "report.html")
+    pdf_target = str(nested_dir / "report.pdf")
+    json_target = str(nested_dir / "report.json")
+
+    report.export_html(html_target)
+    report.export_pdf(pdf_target)
+    report.export_json(json_target)
+
+    assert os.path.isfile(html_target)
+    assert os.path.isfile(pdf_target)
+    assert os.path.isfile(json_target)

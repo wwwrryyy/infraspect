@@ -78,6 +78,11 @@ void VideoIngestor::ingestionLoop() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
             }
+            if (++consecutive_failures >= 100) {
+                std::cerr << "[VideoIngestor Error] Camera disconnected or read timed out." << std::endl;
+                is_running_ = false;
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }

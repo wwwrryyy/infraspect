@@ -121,7 +121,7 @@ class SHARPOfflineResilienceManager:
 
     def log_threat_offline(self, threat_dict: dict):
         """Legacy alert logging method."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO threat_logs (timestamp, threat_id, threat_type, confidence, mse_score, bbox_json, synced)

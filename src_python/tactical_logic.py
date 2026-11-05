@@ -189,10 +189,13 @@ class TacticalDecisionLogic:
             x, y, w, h = cv2.boundingRect(cnt)
             area = cv2.contourArea(cnt)
             diag = np.hypot(w, h)
+            roi_mask = cleaned_mask[y : y + h, x : x + w]
+            pixel_count = int(np.count_nonzero(roi_mask))
+            # Hairline 1-pixel cracks have contourArea == 0; use active pixel count as effective area
+            effective_area = max(area, float(pixel_count))
 
-            if (self.min_area <= area <= self.max_area) or (diag >= self.min_crack_length and area >= 6):
+            if (self.min_area <= effective_area <= self.max_area) or (diag >= self.min_crack_length and pixel_count >= 6):
                 roi_mse = mse_heatmap[y : y + h, x : x + w]
-                roi_mask = cleaned_mask[y : y + h, x : x + w]
                 active_pts = roi_mse[roi_mask > 0]
                 score = float(np.mean(active_pts)) if active_pts.size > 0 else float(self.mse_threshold)
                 candidate_boxes.append([x, y, w, h])

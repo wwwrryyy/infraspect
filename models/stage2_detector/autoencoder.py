@@ -56,7 +56,8 @@ class SNNAutoencoder(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward_snn(self, x: torch.Tensor) -> tuple[torch.Tensor, list]:
-        assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Spatial dimensions must be divisible by 4"
+        if not torch.jit.is_tracing():
+            assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Spatial dimensions must be divisible by 4"
 
         mem1 = self.lif1.init_leaky()
         mem2 = self.lif2.init_leaky()
@@ -132,7 +133,8 @@ class CNNAutoencoder(nn.Module):
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Extracts compressed 16-channel bottleneck latent representation."""
-        assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Spatial dimensions must be divisible by 4"
+        if not torch.jit.is_tracing():
+            assert x.shape[2] % 4 == 0 and x.shape[3] % 4 == 0, "Spatial dimensions must be divisible by 4"
         return self.encoder(x)
 
     def decode(self, latent: torch.Tensor) -> torch.Tensor:

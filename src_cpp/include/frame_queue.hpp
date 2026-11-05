@@ -23,7 +23,7 @@ private:
     std::atomic<bool> stopped_{false};
 
 public:
-    explicit IsolatedMemoryQueue(size_t capacity = 30) : capacity_(capacity) {}
+    explicit IsolatedMemoryQueue(size_t capacity = 30) : capacity_(std::max(size_t(1), capacity)) {}
 
     bool push(const T& item, int timeout_ms = 10) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -78,6 +78,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         std::queue<T> empty;
         std::swap(queue_, empty);
+        cv_push_.notify_all();
     }
 
     void reset() {
