@@ -125,13 +125,17 @@ cmake --build src_cpp/build --config Release
 ### 3. Launch the Interactive Inspection HUD
 ```bash
 # Launch OpenCV 2x2 Multi-Panel HUD (Default)
-python gui_dashboard.py --gui cv --arch cnn
+python scripts/gui_dashboard.py --gui cv --arch cnn
+# Or using the installed CLI entry point:
+infraspect-hud --gui cv --arch cnn
 
 # Launch Native DearPyGui Desktop Dashboard
-python gui_dashboard.py --gui dpg --arch snn
+python scripts/gui_dashboard.py --gui dpg --arch snn
+# Or using the installed CLI entry point:
+infraspect-hud --gui dpg --arch snn
 
 # Headless CI Verification (runs 10 frames without opening display windows)
-python gui_dashboard.py --gui cv --headless --frames 10
+python scripts/gui_dashboard.py --gui cv --headless --frames 10
 ```
 
 ### 4. Interactive Keyboard Controls
@@ -169,7 +173,7 @@ infraspect-report --db civil_inspection_telemetry.db --output inspection_report.
 
 ## Automated Verification & Testing
 
-The repository includes **41 automated unit tests** covering C++ bindings, anomaly calculus parity, optical corruption determinism, neural network forward passes, real dataset extraction, headless GUI loops, and AASHTO report generation.
+The repository includes **57 automated unit tests** covering C++ bindings, anomaly calculus parity, optical corruption determinism, neural network forward passes, real dataset extraction, headless GUI loops, and AASHTO report generation.
 
 ```bash
 # Run complete test suite

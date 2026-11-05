@@ -27,8 +27,12 @@ import cv2
 import onnxruntime as ort
 
 # Add source paths
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src_python"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+src_python_dir = os.path.join(REPO_ROOT, "src_python")
+if src_python_dir not in sys.path:
+    sys.path.insert(0, src_python_dir)
 
 from src_python.tactical_logic import TacticalDecisionLogic, compute_pixelwise_mse_numpy
 from src_python.sharp_resilience import SHARPOfflineResilienceManager

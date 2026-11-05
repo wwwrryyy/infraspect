@@ -28,10 +28,17 @@ import cv2
 # Environment guards
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src_python"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+src_python_dir = os.path.join(REPO_ROOT, "src_python")
+if src_python_dir not in sys.path:
+    sys.path.insert(0, src_python_dir)
 
-from deploy_inference import PipelineRunner
+try:
+    from scripts.deploy_inference import PipelineRunner
+except ImportError:
+    from deploy_inference import PipelineRunner
 from data.datasets import generate_concrete_patch, inject_synthetic_defect
 from models.stage1_denoiser.corruption import corrupt_civil_image
 from src_python.sharp_resilience import SHARPOfflineResilienceManager

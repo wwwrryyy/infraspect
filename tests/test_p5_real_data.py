@@ -21,7 +21,7 @@ from data.real_inspection_dataset import (
     RealStage2EvaluationDataset,
     RealStage3ClassifierDataset,
 )
-from train_real_inspection import roc_auc_numpy
+from scripts.train_real_inspection import roc_auc_numpy
 
 
 HAS_CRACKFOREST = os.path.isdir("data/raw/crackforest/image")
@@ -143,7 +143,7 @@ def test_calibrated_threshold_files():
 
 
 def test_real_inference_benchmark():
-    from deploy_inference import PipelineRunner
+    from scripts.deploy_inference import PipelineRunner
 
     if HAS_CRACKFOREST:
         healthy_patches, _ = extract_real_concrete_patches(max_patches=5)

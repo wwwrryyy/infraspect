@@ -48,6 +48,14 @@ def roc_auc_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
 # Environment guards
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+import sys
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+src_python_dir = os.path.join(REPO_ROOT, "src_python")
+if src_python_dir not in sys.path:
+    sys.path.insert(0, src_python_dir)
+
 from data.real_inspection_dataset import (
     extract_real_concrete_patches,
     extract_crack_segmentation_patches,

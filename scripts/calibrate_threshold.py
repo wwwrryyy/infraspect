@@ -8,11 +8,19 @@ the 99.5th percentile pixel MSE, writing exports/calibration.json.
 """
 
 import os
+import sys
 import json
 import argparse
 import numpy as np
 import torch
 import onnxruntime as ort
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+src_python_dir = os.path.join(REPO_ROOT, "src_python")
+if src_python_dir not in sys.path:
+    sys.path.insert(0, src_python_dir)
 
 from data.datasets import Stage2HealthyDataset
 from src_python.tactical_logic import compute_pixelwise_mse_numpy

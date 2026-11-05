@@ -29,12 +29,9 @@ dynamic = ["dependencies"]
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }
 
-[tool.setuptools]
-py-modules = ["deploy_inference", "gui_dashboard", "train_real_inspection", "calibrate_threshold"]
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["models*", "src_python*", "data*"]
+include = ["models*", "src_python*", "data*", "scripts*"]
 
 [project.urls]
 Homepage = "https://github.com/wwwrryyy/infraspect"
@@ -42,7 +39,7 @@ Repository = "https://github.com/wwwrryyy/infraspect.git"
 Issues = "https://github.com/wwwrryyy/infraspect/issues"
 
 [project.scripts]
-infraspect-hud = "gui_dashboard:main"
-infraspect-benchmark = "deploy_inference:main"
-infraspect-train = "train_real_inspection:main"
+infraspect-hud = "scripts.gui_dashboard:main"
+infraspect-benchmark = "scripts.deploy_inference:main"
+infraspect-train = "scripts.train_real_inspection:main"
 infraspect-report = "src_python.report_generator:main"

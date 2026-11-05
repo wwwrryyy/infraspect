@@ -7,7 +7,7 @@ Unit tests verifying LiveInspectionHUD rendering and state transitions.
 import numpy as np
 import pytest
 
-from gui_dashboard import LiveInspectionHUD
+from scripts.gui_dashboard import LiveInspectionHUD
 
 
 def test_hud_rendering_headless():
@@ -64,5 +64,5 @@ def test_dearpygui_headless_dashboard():
         headless=True,
         frames=3,
     )
-    from gui_dashboard import run_dearpygui_dashboard
+    from scripts.gui_dashboard import run_dearpygui_dashboard
     run_dearpygui_dashboard(args)

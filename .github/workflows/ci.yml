@@ -46,12 +46,12 @@ jobs:
 
       - name: Run End-to-End Inference Benchmark
         run: |
-          PYTHONPATH=. python deploy_inference.py --arch compare --num-frames 5
+          PYTHONPATH=. python scripts/deploy_inference.py --arch compare --num-frames 5
 
       - name: Run Headless GUI Dashboard Verification
         run: |
-          PYTHONPATH=. python gui_dashboard.py --gui cv --headless --frames 5
-          PYTHONPATH=. python gui_dashboard.py --gui dpg --headless --frames 5
+          PYTHONPATH=. python scripts/gui_dashboard.py --gui cv --headless --frames 5
+          PYTHONPATH=. python scripts/gui_dashboard.py --gui dpg --headless --frames 5
 
       - name: Run AASHTO Inspection Audit Report Generator Verification
         run: |

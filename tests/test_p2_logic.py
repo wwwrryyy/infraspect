@@ -137,7 +137,7 @@ def test_civil_inspection_telemetry_and_sync():
 
 
 def test_resolution_scaling_gsd_invariance():
-    from deploy_inference import PipelineRunner
+    from scripts.deploy_inference import PipelineRunner
 
     # Compare 128x128 baseline against 256x256 scaled camera frame of the same physical structure
     runner_128 = PipelineRunner(arch="cnn", gsd_mm_per_px=0.10)
