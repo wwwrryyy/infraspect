@@ -40,7 +40,7 @@ jobs:
 
       - name: Run Automated Test Suite
         run: |
-          PYTHONPATH=. pytest -v tests/
+          PYTHONPATH=.:src_python python -m pytest -v tests/
 
       - name: Run End-to-End Inference Benchmark
         run: |

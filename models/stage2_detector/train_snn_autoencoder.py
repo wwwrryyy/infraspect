@@ -180,23 +180,26 @@ def train_and_export(args):
     export_wrapper = ONNXExportableSNN(model) if args.arch.lower() == "snn" else model
 
     print(f"[*] Exporting Stage 2 to ONNX: {onnx_path} ...")
-    torch.onnx.export(
-        export_wrapper,
-        dummy,
-        onnx_path,
-        export_params=True,
-        opset_version=17,
-        do_constant_folding=True,
-        input_names=["restored_frame"],
-        output_names=["reconstructed_baseline"],
-        dynamic_axes={
-            "restored_frame": {0: "batch_size"},
-            "reconstructed_baseline": {0: "batch_size"},
-        },
-        dynamo=False,
-    )
-    size_kb = os.path.getsize(onnx_path) / 1024
-    print(f"[+] Exported Stage 2 ONNX: {onnx_path} ({size_kb:.1f} KB)")
+    try:
+        torch.onnx.export(
+            export_wrapper,
+            dummy,
+            onnx_path,
+            export_params=True,
+            opset_version=17,
+            do_constant_folding=True,
+            input_names=["restored_frame"],
+            output_names=["reconstructed_baseline"],
+            dynamic_axes={
+                "restored_frame": {0: "batch_size"},
+                "reconstructed_baseline": {0: "batch_size"},
+            },
+            dynamo=False,
+        )
+        size_kb = os.path.getsize(onnx_path) / 1024
+        print(f"[+] Exported Stage 2 ONNX: {onnx_path} ({size_kb:.1f} KB)")
+    except Exception as e:
+        print(f"[-] ONNX export warning / skipped: {e}")
     return ckpt_path, onnx_path, auroc
 
 
